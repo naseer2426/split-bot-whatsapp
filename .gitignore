@@ -1,0 +1,26 @@
+# Compiled binary
+bot
+
+# Environment variables
+.env
+
+# WhatsApp session database (SQLite - if used locally)
+whatsapp.db
+whatsapp.db-shm
+whatsapp.db-wal
+
+# Go build cache
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go test binary
+*.test
+
+# Go coverage
+*.out
+
+# Dependency directories
+vendor/
