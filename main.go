@@ -35,6 +35,16 @@ func main() {
 		os.Exit(1)
 	}
 	
+	// Get BOT_NAME from environment variables
+	botName := os.Getenv("BOT_NAME")
+	if botName == "" {
+		fmt.Println("Warning: BOT_NAME environment variable is not set")
+		fmt.Println("Bot will respond to all messages. Set BOT_NAME to filter messages.")
+	} else {
+		fmt.Printf("Bot name set to: %s\n", botName)
+		whatsapp.SetBotName(botName)
+	}
+	
 	// Initialize WhatsApp client
 	var err error
 	client, err = whatsapp.InitializeClient(databaseURL)

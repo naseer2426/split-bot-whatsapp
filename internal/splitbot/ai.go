@@ -16,6 +16,7 @@ type ProcessMessageRequest struct {
 	Sender       string `json:"sender"`
 	PlatformType string `json:"platform_type"`
 	ImageBase64 *ImageBase64 `json:"image_base64"`
+	BotName      string `json:"bot_name"`
 }
 
 // ProcessMessageResponse represents the response from processing a message
