@@ -2,10 +2,6 @@ package splitbot
 
 import (
 	"fmt"
-	"os"
-	"time"
-
-	"resty.dev/v3"
 )
 
 // GetAllUsersOptions represents query parameters for GetAllUsers
@@ -23,24 +19,8 @@ type CreateUserRequest struct {
 	WhatsappLID      *string `json:"whatsapp_lid,omitempty"`
 }
 
-// getClient returns a configured resty client with base URL and logging
-func getClient() (*resty.Client, error) {
-	domain := os.Getenv("SPLIT_BOT_DOMAIN")
-	if domain == "" {
-		return nil, fmt.Errorf("SPLIT_BOT_DOMAIN environment variable is not set")
-	}
-
-	client := resty.New().
-		SetBaseURL(domain).
-		SetTimeout(30 * time.Second).
-		SetDebug(true).
-		SetDebugBodyLimit(10 * 1024) // Limit body logs to 10KB
-
-	return client, nil
-}
-
 // GetAllUsers retrieves all users from the API
-// It uses the SPLIT_BOT_DOMAIN environment variable to determine the API base URL
+// It uses the SPLIT_BOT_URL environment variable to determine the API base URL
 func GetAllUsers(opts GetAllUsersOptions) ([]User, error) {
 	client, err := getClient()
 	if err != nil {
@@ -77,7 +57,7 @@ func GetAllUsers(opts GetAllUsersOptions) ([]User, error) {
 }
 
 // CreateUser creates a new user via the API
-// It uses the SPLIT_BOT_DOMAIN environment variable to determine the API base URL
+// It uses the SPLIT_BOT_URL environment variable to determine the API base URL
 func CreateUser(req CreateUserRequest) (*User, error) {
 	client, err := getClient()
 	if err != nil {
@@ -102,7 +82,7 @@ func CreateUser(req CreateUserRequest) (*User, error) {
 }
 
 // UpdateUser updates an existing user via the API
-// It uses the SPLIT_BOT_DOMAIN environment variable to determine the API base URL
+// It uses the SPLIT_BOT_URL environment variable to determine the API base URL
 func UpdateUser(userID int, req CreateUserRequest) (*User, error) {
 	client, err := getClient()
 	if err != nil {
