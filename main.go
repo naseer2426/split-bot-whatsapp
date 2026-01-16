@@ -19,7 +19,7 @@ import (
 	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/naseer2426/split-bot-whatsapp/internal/db"
+	"github.com/naseer2426/split-bot-whatsapp/internal/splitbot"
 	waProto "go.mau.fi/whatsmeow/proto/waE2E"
 )
 
@@ -105,19 +105,23 @@ func main() {
 	// signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	// <-c
 	
-	// Query all users from the database
-	users, err := db.GetAllUsers()
+	// Query all users from the API
+	userList, err := splitbot.GetAllUsers(splitbot.GetAllUsersOptions{
+		Limit:  100,
+	})
 	if err != nil {
 		panic(err)
 	}
 
-	fmt.Println("Users: ", len(users))
+	fmt.Println("Users: ", len(userList))
 	
 	// Extract WhatsApp numbers (filtering out nil values)
+	pnToUserId := make(map[string]int)
 	var whatsappNumbers []string
-	for _, user := range users {
+	for _, user := range userList {
 		if user.WhatsappNumber != nil && *user.WhatsappNumber != "" {
 			whatsappNumbers = append(whatsappNumbers, *user.WhatsappNumber)
+			pnToUserId[*user.WhatsappNumber] = user.ID
 		}
 	}
 	fmt.Println("Whatsapp Numbers: ", len(whatsappNumbers))
@@ -136,6 +140,8 @@ func main() {
 		}
 		jidsOnWhatsApp = append(jidsOnWhatsApp, result.JID)
 	}
+
+	userIdToLid := make(map[int]string)
 	
 	// Get user info for all JIDs at once
 	if len(jidsOnWhatsApp) > 0 {
@@ -150,7 +156,38 @@ func main() {
 				}
 				
 				if info, ok := userInfo[result.JID]; ok {
-					fmt.Println(result.JID.User, info.LID.User)
+					pn := result.JID.User
+					lid := info.LID.User
+					userIdToLid[pnToUserId[pn]] = lid
+				}
+			}
+		}
+	}
+
+	// Update users' whatsapp_lid using userIdToLid map
+	if len(userIdToLid) > 0 {
+		// Create a map for quick user lookup
+		userMap := make(map[int]splitbot.User)
+		for _, user := range userList {
+			userMap[user.ID] = user
+		}
+
+		// Update each user's whatsapp_lid
+		for userId, lid := range userIdToLid {
+			if user, ok := userMap[userId]; ok {
+				updateReq := splitbot.CreateUserRequest{
+					Name:             user.Name,
+					Email:            user.Email,
+					TelegramUsername: user.TelegramUsername,
+					WhatsappNumber:   user.WhatsappNumber,
+					WhatsappLID:      &lid,
+				}
+				
+				updatedUser, err := splitbot.UpdateUser(userId, updateReq)
+				if err != nil {
+					fmt.Printf("Error updating user %d: %v\n", userId, err)
+				} else {
+					fmt.Printf("Updated user %d (%s) with whatsapp_lid: %s\n", userId, updatedUser.Email, lid)
 				}
 			}
 		}
