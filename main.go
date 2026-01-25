@@ -12,6 +12,7 @@ import (
 	_ "github.com/lib/pq"
 	"go.mau.fi/whatsmeow"
 
+	"github.com/naseer2426/split-bot-whatsapp/internal/server"
 	"github.com/naseer2426/split-bot-whatsapp/internal/whatsapp"
 )
 
@@ -42,15 +43,19 @@ func main() {
 		fmt.Println("Bot will respond to all messages. Set BOT_NAME to filter messages.")
 	} else {
 		fmt.Printf("Bot name set to: %s\n", botName)
-		whatsapp.SetBotName(botName)
 	}
 	
 	// Initialize WhatsApp client
 	var err error
-	client, err = whatsapp.InitializeClient(databaseURL)
+	var handler *whatsapp.Handler
+	client, handler, err = whatsapp.InitializeClient(databaseURL, botName)
 	if err != nil {
 		panic(err)
 	}
+	
+	// Start HTTP server for API endpoints
+	httpServer := server.NewServer(handler)
+	httpServer.Start()
 	
 	fmt.Println("Bot is now running. Press CTRL-C to exit.")
 	

@@ -10,21 +10,23 @@ import (
 	"github.com/naseer2426/split-bot-whatsapp/internal/splitbot"
 	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
 )
 
-var client *whatsmeow.Client
-var botName string
-
-// SetClient sets the global client for the event handler
-func SetClient(c *whatsmeow.Client) {
-	client = c
+// Handler contains the WhatsApp client and bot configuration
+type Handler struct {
+	client  *whatsmeow.Client
+	botName string
 }
 
-// SetBotName sets the bot name for filtering messages
-func SetBotName(name string) {
-	botName = name
+// NewHandler creates a new Handler instance
+func NewHandler(client *whatsmeow.Client, botName string) *Handler {
+	return &Handler{
+		client:  client,
+		botName: botName,
+	}
 }
 
 // cleanSenderID removes @lid suffix or any suffix after : (including the :)
@@ -67,14 +69,14 @@ func findMentions(responseText string) []string {
 
 // parseImage downloads and converts an image to base64
 // Returns empty ImageBase64 if imageMsg is nil
-func parseImage(imageMsg *waProto.ImageMessage) (*splitbot.ImageBase64, error) {
+func (h *Handler) parseImage(imageMsg *waProto.ImageMessage) (*splitbot.ImageBase64, error) {
 	// Handle nil case
 	if imageMsg == nil {
 		return nil, nil
 	}
 	
 	// Download the image
-	imageBytes, err := client.Download(context.Background(), imageMsg)
+	imageBytes, err := h.client.Download(context.Background(), imageMsg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to download image: %w", err)
 	}
@@ -92,7 +94,7 @@ func parseImage(imageMsg *waProto.ImageMessage) (*splitbot.ImageBase64, error) {
 }
 
 // handleMessage processes a message and returns the response
-func handleMessage(evt *events.Message) *waProto.Message {
+func (h *Handler) handleMessage(evt *events.Message) *waProto.Message {
 	// Get messageText: check ExtendedTextMessage first, then Conversation
 	var messageText string
 	if extMsg := evt.Message.GetExtendedTextMessage(); extMsg != nil {
@@ -104,7 +106,7 @@ func handleMessage(evt *events.Message) *waProto.Message {
 	fmt.Printf("Received message from %s: %s\n", evt.Info.Sender, messageText)
 	
 	// Parse image (handles nil case internally)
-	imageBase64, err := parseImage(evt.Message.GetImageMessage())
+	imageBase64, err := h.parseImage(evt.Message.GetImageMessage())
 	if err != nil {
 		fmt.Printf("Error parsing image: %v\n", err)
 		return &waProto.Message{
@@ -120,7 +122,7 @@ func handleMessage(evt *events.Message) *waProto.Message {
 		GroupID:     evt.Info.Chat.String(),
 		Sender:      cleanSenderID(evt.Info.Sender.String()),
 		ImageBase64: imageBase64,
-		BotName:     botName,
+		BotName:     h.botName,
 	}
 	
 	// Process message with AI
@@ -133,12 +135,17 @@ func handleMessage(evt *events.Message) *waProto.Message {
 		replyText = response.Response
 	}
 	
-	// Parse mentions from the response
-	mentionedJIDs := findMentions(replyText)
+	return h.createTextMessage(replyText)
+}
+
+// createTextMessage creates a waProto.Message from text with mention support
+func (h *Handler) createTextMessage(text string) *waProto.Message {
+	// Parse mentions from the text
+	mentionedJIDs := findMentions(text)
 	fmt.Printf("Found mentions: %v\n", mentionedJIDs)
 	
 	extendedTextMsg := &waProto.ExtendedTextMessage{
-		Text: proto.String(replyText),
+		Text: proto.String(text),
 	}
 	
 	// Set ContextInfo with MentionedJID if there are any mentions
@@ -153,8 +160,8 @@ func handleMessage(evt *events.Message) *waProto.Message {
 	}
 }
 
-func shouldProcessMessage(messageText string, imageMsg *waProto.ImageMessage) bool {
-	if botName == "" {
+func (h *Handler) shouldProcessMessage(messageText string, imageMsg *waProto.ImageMessage) bool {
+	if h.botName == "" {
 		return true
 	}
 
@@ -162,11 +169,29 @@ func shouldProcessMessage(messageText string, imageMsg *waProto.ImageMessage) bo
 		return true
 	}
 
-	return strings.Contains(strings.ToLower(messageText), strings.ToLower(botName))
+	return strings.Contains(strings.ToLower(messageText), strings.ToLower(h.botName))
+}
+
+// SendMessageToGroup sends a message to a WhatsApp group
+func (h *Handler) SendMessageToGroup(message string, groupId string) error {
+	// Create JID with groupId as User and "g.us" as Server (WhatsApp group format)
+	jid := types.NewJID(groupId, "g.us")
+	
+	// Create the message with mention support
+	msg := h.createTextMessage(message)
+	
+	// Send the message
+	_, err := h.client.SendMessage(context.Background(), jid, msg)
+	if err != nil {
+		return fmt.Errorf("failed to send message to group %s: %w", groupId, err)
+	}
+	
+	fmt.Printf("Sent message to group %s\n", groupId)
+	return nil
 }
 
 // EventHandler handles incoming WhatsApp events
-func EventHandler(rawEvt interface{}) {
+func (h *Handler) EventHandler(rawEvt interface{}) {
 	switch evt := rawEvt.(type) {
 	case *events.Message:
 		// Get messageText: check ExtendedTextMessage first, then Conversation
@@ -179,13 +204,13 @@ func EventHandler(rawEvt interface{}) {
 		
 		// Check if message includes bot_name (case-insensitive)
 		// Skip processing if bot_name is empty or message doesn't contain it
-		if !shouldProcessMessage(messageText, evt.Message.GetImageMessage()) {
-			fmt.Printf("Message from %s doesn't include bot_name '%s', skipping...\n", evt.Info.Sender, botName)
+		if !h.shouldProcessMessage(messageText, evt.Message.GetImageMessage()) {
+			fmt.Printf("Message from %s doesn't include bot_name '%s', skipping...\n", evt.Info.Sender, h.botName)
 			return
 		}
 		
 		// Send "Give me a bit..." message
-		_, err := client.SendMessage(context.Background(), evt.Info.Chat, &waProto.Message{
+		_, err := h.client.SendMessage(context.Background(), evt.Info.Chat, &waProto.Message{
 			ExtendedTextMessage: &waProto.ExtendedTextMessage{
 				Text: proto.String("Give me a bit..."),
 			},
@@ -195,10 +220,10 @@ func EventHandler(rawEvt interface{}) {
 		}
 		
 		// Process the message
-		replyMessage := handleMessage(evt)
+		replyMessage := h.handleMessage(evt)
 		
 		// Send the response
-		_, err = client.SendMessage(
+		_, err = h.client.SendMessage(
 			context.Background(),
 			evt.Info.Chat,
 			replyMessage,

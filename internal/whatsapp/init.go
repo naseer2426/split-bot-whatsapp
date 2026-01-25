@@ -11,8 +11,8 @@ import (
 	waLog "go.mau.fi/whatsmeow/util/log"
 )
 
-// InitializeClient sets up and returns a WhatsApp client
-func InitializeClient(databaseURL string) (*whatsmeow.Client, error) {
+// InitializeClient sets up and returns a WhatsApp client and handler
+func InitializeClient(databaseURL string, botName string) (*whatsmeow.Client, *Handler, error) {
 	// Set up logging
 	dbLog := waLog.Stdout("Database", "INFO", true)
 	ctx := context.Background()
@@ -20,23 +20,23 @@ func InitializeClient(databaseURL string) (*whatsmeow.Client, error) {
 	// Initialize the PostgreSQL container for storing session data
 	container, err := sqlstore.New(ctx, "postgres", databaseURL, dbLog)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create SQL store: %w", err)
+		return nil, nil, fmt.Errorf("failed to create SQL store: %w", err)
 	}
 	
 	// If you want multiple sessions, use container.NewDevice()
 	deviceStore, err := container.GetFirstDevice(context.Background())
 	if err != nil {
-		return nil, fmt.Errorf("failed to get device store: %w", err)
+		return nil, nil, fmt.Errorf("failed to get device store: %w", err)
 	}
 	
 	clientLog := waLog.Stdout("Client", "INFO", true)
 	client := whatsmeow.NewClient(deviceStore, clientLog)
 	
-	// Set the client for the event handler
-	SetClient(client)
+	// Create handler with client and bot name
+	handler := NewHandler(client, botName)
 	
 	// Add event handler for incoming messages
-	client.AddEventHandler(EventHandler)
+	client.AddEventHandler(handler.EventHandler)
 	
 	// Connect to WhatsApp
 	if client.Store.ID == nil {
@@ -44,7 +44,7 @@ func InitializeClient(databaseURL string) (*whatsmeow.Client, error) {
 		qrChan, _ := client.GetQRChannel(context.Background())
 		err = client.Connect()
 		if err != nil {
-			return nil, fmt.Errorf("failed to connect: %w", err)
+			return nil, nil, fmt.Errorf("failed to connect: %w", err)
 		}
 		
 		// Print QR code for scanning
@@ -67,9 +67,9 @@ func InitializeClient(databaseURL string) (*whatsmeow.Client, error) {
 		// Already logged in, just connect
 		err = client.Connect()
 		if err != nil {
-			return nil, fmt.Errorf("failed to connect: %w", err)
+			return nil, nil, fmt.Errorf("failed to connect: %w", err)
 		}
 	}
 	
-	return client, nil
+	return client, handler, nil
 }
