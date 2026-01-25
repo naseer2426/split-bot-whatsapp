@@ -19,13 +19,21 @@ import (
 type Handler struct {
 	client  *whatsmeow.Client
 	botName string
+	admins  map[string]bool
 }
 
 // NewHandler creates a new Handler instance
 func NewHandler(client *whatsmeow.Client, botName string) *Handler {
+	admins, err := LoadAdmins()
+	if err != nil {
+		fmt.Printf("Warning: Failed to load admins: %v\n", err)
+		admins = make(map[string]bool)
+	}
+
 	return &Handler{
 		client:  client,
 		botName: botName,
+		admins:  admins,
 	}
 }
 
@@ -195,11 +203,11 @@ func (h *Handler) EventHandler(rawEvt interface{}) {
 	switch evt := rawEvt.(type) {
 	case *events.Message:
 		// Get messageText: check ExtendedTextMessage first, then Conversation
-		var messageText string
-		if extMsg := evt.Message.GetExtendedTextMessage(); extMsg != nil {
-			messageText = extMsg.GetText()
-		} else {
-			messageText = evt.Message.GetConversation()
+		messageText := getMessageText(evt)
+
+		if h.isAdminMessage(evt) {
+			h.handleAdminMessage(evt)
+			return
 		}
 		
 		// Check if message includes bot_name (case-insensitive)
