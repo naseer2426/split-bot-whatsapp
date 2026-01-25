@@ -56,4 +56,5 @@ func (s *Server) Start() {
 // setupRoutes registers all HTTP routes
 func (s *Server) setupRoutes() {
 	s.router.POST("/send_message_to_group", s.sendMessageToGroupHandler)
+	s.router.POST("/grafana_webhook", s.grafanaWebhookHandler)
 }
