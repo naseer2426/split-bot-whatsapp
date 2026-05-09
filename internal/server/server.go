@@ -12,13 +12,13 @@ import (
 
 // Server represents the HTTP server
 type Server struct {
-	handler *whatsapp.Handler
+	handler *whatsapp.MsgHandler
 	port    string
 	router  *gin.Engine
 }
 
 // NewServer creates a new HTTP server instance
-func NewServer(handler *whatsapp.Handler) *Server {
+func NewServer(handler *whatsapp.MsgHandler) *Server {
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"

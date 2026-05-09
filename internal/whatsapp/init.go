@@ -12,7 +12,7 @@ import (
 )
 
 // InitializeClient sets up and returns a WhatsApp client and handler
-func InitializeClient(databaseURL string, botName string) (*whatsmeow.Client, *Handler, error) {
+func InitializeClient(databaseURL string, botName string) (*whatsmeow.Client, *MsgHandler, error) {
 	// Set up logging
 	dbLog := waLog.Stdout("Database", "INFO", true)
 	ctx := context.Background()
@@ -33,7 +33,7 @@ func InitializeClient(databaseURL string, botName string) (*whatsmeow.Client, *H
 	client := whatsmeow.NewClient(deviceStore, clientLog)
 	
 	// Create handler with client and bot name
-	handler := NewHandler(client, botName)
+	handler := NewMsgHandler(client, botName)
 	
 	// Add event handler for incoming messages
 	client.AddEventHandler(handler.EventHandler)

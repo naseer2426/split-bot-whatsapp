@@ -47,7 +47,7 @@ func main() {
 	
 	// Initialize WhatsApp client
 	var err error
-	var handler *whatsapp.Handler
+	var handler *whatsapp.MsgHandler
 	client, handler, err = whatsapp.InitializeClient(databaseURL, botName)
 	if err != nil {
 		panic(err)

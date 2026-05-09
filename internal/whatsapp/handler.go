@@ -15,22 +15,22 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// Handler contains the WhatsApp client and bot configuration
-type Handler struct {
+// MsgHandler contains the WhatsApp client and bot configuration
+type MsgHandler struct {
 	client  *whatsmeow.Client
 	botName string
 	admins  map[string]bool
 }
 
-// NewHandler creates a new Handler instance
-func NewHandler(client *whatsmeow.Client, botName string) *Handler {
+// NewMsgHandler creates a new Handler instance
+func NewMsgHandler(client *whatsmeow.Client, botName string) *MsgHandler {
 	admins, err := LoadAdmins()
 	if err != nil {
 		fmt.Printf("Warning: Failed to load admins: %v\n", err)
 		admins = make(map[string]bool)
 	}
 
-	return &Handler{
+	return &MsgHandler{
 		client:  client,
 		botName: botName,
 		admins:  admins,
@@ -77,7 +77,7 @@ func findMentions(responseText string) []string {
 
 // parseImage downloads and converts an image to base64
 // Returns empty ImageBase64 if imageMsg is nil
-func (h *Handler) parseImage(imageMsg *waProto.ImageMessage) (*splitbot.ImageBase64, error) {
+func (h *MsgHandler) parseImage(imageMsg *waProto.ImageMessage) (*splitbot.ImageBase64, error) {
 	// Handle nil case
 	if imageMsg == nil {
 		return nil, nil
@@ -102,7 +102,7 @@ func (h *Handler) parseImage(imageMsg *waProto.ImageMessage) (*splitbot.ImageBas
 }
 
 // handleMessage processes a message and returns the response
-func (h *Handler) handleMessage(evt *events.Message) *waProto.Message {
+func (h *MsgHandler) handleMessage(evt *events.Message) *waProto.Message {
 	// Get messageText: check ExtendedTextMessage first, then Conversation
 	var messageText string
 	if extMsg := evt.Message.GetExtendedTextMessage(); extMsg != nil {
@@ -147,7 +147,7 @@ func (h *Handler) handleMessage(evt *events.Message) *waProto.Message {
 }
 
 // createTextMessage creates a waProto.Message from text with mention support
-func (h *Handler) createTextMessage(text string) *waProto.Message {
+func (h *MsgHandler) createTextMessage(text string) *waProto.Message {
 	// Parse mentions from the text
 	mentionedJIDs := findMentions(text)
 	fmt.Printf("Found mentions: %v\n", mentionedJIDs)
@@ -168,7 +168,7 @@ func (h *Handler) createTextMessage(text string) *waProto.Message {
 	}
 }
 
-func (h *Handler) shouldProcessMessage(messageText string, imageMsg *waProto.ImageMessage) bool {
+func (h *MsgHandler) shouldProcessMessage(messageText string, imageMsg *waProto.ImageMessage) bool {
 	if h.botName == "" {
 		return true
 	}
@@ -181,7 +181,7 @@ func (h *Handler) shouldProcessMessage(messageText string, imageMsg *waProto.Ima
 }
 
 // SendMessageToGroup sends a message to a WhatsApp group
-func (h *Handler) SendMessageToGroup(message string, groupId string) error {
+func (h *MsgHandler) SendMessageToGroup(message string, groupId string) error {
 	// Create JID with groupId as User and "g.us" as Server (WhatsApp group format)
 	jid := types.NewJID(groupId, types.GroupServer)
 
@@ -200,7 +200,7 @@ func (h *Handler) SendMessageToGroup(message string, groupId string) error {
 
 // SendMessageToUser sends a message to a WhatsApp user (1:1 chat).
 // userId is either a phone number (digits, no +) or a full JID (e.g. 123@s.whatsapp.net, or ...@lid).
-func (h *Handler) SendMessageToUser(message string, userId string) error {
+func (h *MsgHandler) SendMessageToUser(message string, userId string) error {
 	var jid types.JID
 	var err error
 	if strings.Contains(userId, "@") {
@@ -223,7 +223,7 @@ func (h *Handler) SendMessageToUser(message string, userId string) error {
 }
 
 // EventHandler handles incoming WhatsApp events
-func (h *Handler) EventHandler(rawEvt interface{}) {
+func (h *MsgHandler) EventHandler(rawEvt interface{}) {
 	switch evt := rawEvt.(type) {
 	case *events.Message:
 		// Get messageText: check ExtendedTextMessage first, then Conversation

@@ -72,7 +72,7 @@ func LoadAdmins() (map[string]bool, error) {
 }
 
 // isAdminMessage checks if a message is from an admin in a private chat
-func (h *Handler) isAdminMessage(evt *events.Message) bool {
+func (h *MsgHandler) isAdminMessage(evt *events.Message) bool {
 	// Check if message is from a private chat (not a group)
 	// Groups have "g.us" as the server part
 	if evt.Info.Chat.Server == "g.us" {
@@ -85,7 +85,7 @@ func (h *Handler) isAdminMessage(evt *events.Message) bool {
 }
 
 // handleAdminMessage handles admin messages (empty for now)
-func (h *Handler) handleAdminMessage(evt *events.Message) {
+func (h *MsgHandler) handleAdminMessage(evt *events.Message) {
 	messageText := getMessageText(evt)
 	response := "Unrecognized command"
 
@@ -103,7 +103,7 @@ func (h *Handler) handleAdminMessage(evt *events.Message) {
 	}
 }
 
-func (h *Handler) whitelistCommand(messageText string) string {
+func (h *MsgHandler) whitelistCommand(messageText string) string {
 	// Trim whitespace from the message
 	messageText = strings.TrimSpace(messageText)
 	
