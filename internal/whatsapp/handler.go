@@ -4,80 +4,64 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
-	"regexp"
 	"strings"
 
+	"github.com/naseer2426/split-bot-whatsapp/internal/config"
 	"github.com/naseer2426/split-bot-whatsapp/internal/splitbot"
-	"go.mau.fi/whatsmeow"
+	waclient "github.com/naseer2426/split-bot-whatsapp/internal/whatsmeow"
+	wa "go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
 )
 
-// WaHandler contains the WhatsApp client and bot configuration
-type WaHandler struct {
-	client  *whatsmeow.Client
+// Handler contains the WhatsApp client and bot configuration
+type Handler struct {
+	client  *wa.Client
 	botName string
 	admins  map[string]bool
 }
 
-// NewWaHandler creates a new Handler instance
-func NewWaHandler(client *whatsmeow.Client, botName string) *WaHandler {
+// NewHandler builds a handler with a WhatsApp client and registers the event handler (call Connect next).
+func NewHandler() (*Handler, error) {
+	client, err := waclient.InitializeWhatsmeow(context.Background())
+	if err != nil {
+		return nil, err
+	}
+
 	admins, err := LoadAdmins()
 	if err != nil {
 		fmt.Printf("Warning: Failed to load admins: %v\n", err)
 		admins = make(map[string]bool)
 	}
 
-	return &WaHandler{
+	h := &Handler{
 		client:  client,
-		botName: botName,
+		botName: config.Get().Bot.Name,
 		admins:  admins,
 	}
+	h.registerClient()
+	return h, nil
 }
 
-// cleanSenderID removes @lid suffix or any suffix after : (including the :)
-func cleanSenderID(sender string) string {
-	// Remove anything after and including ":"
-	if idx := strings.Index(sender, ":"); idx != -1 {
-		return sender[:idx]
-	}
-	// If ":" doesn't exist, remove "@lid" suffix if present
-	if strings.HasSuffix(sender, "@lid") {
-		return strings.TrimSuffix(sender, "@lid")
-	}
-	return sender
+func (h *Handler) registerClient() {
+	h.client.AddEventHandler(h.EventHandler)
 }
 
-// findMentions extracts all "@numbers" patterns from the response text
-// and returns them as a slice of number strings
-func findMentions(responseText string) []string {
-	// Pattern to match @ followed by one or more digits
-	pattern := regexp.MustCompile(`@(\d+)`)
-	matches := pattern.FindAllStringSubmatch(responseText, -1)
+// Connect establishes the WhatsApp session (including QR login when needed).
+func (h *Handler) Connect(ctx context.Context) error {
+	return waclient.Connect(ctx, h.client)
+}
 
-	mentionedJIDs := make([]string, 0, len(matches))
-	seen := make(map[string]bool)
-
-	for _, match := range matches {
-		if len(match) > 1 {
-			lidRaw := match[1]
-			// Avoid duplicates
-			if !seen[lidRaw] {
-				lid := lidRaw + "@lid"
-				mentionedJIDs = append(mentionedJIDs, lid)
-				seen[lidRaw] = true
-			}
-		}
-	}
-
-	return mentionedJIDs
+// Disconnect closes the WhatsApp connection.
+func (h *Handler) Disconnect() {
+	h.client.Disconnect()
 }
 
 // parseImage downloads and converts an image to base64
 // Returns empty ImageBase64 if imageMsg is nil
-func (h *WaHandler) parseImage(imageMsg *waProto.ImageMessage) (*splitbot.ImageBase64, error) {
+func (h *Handler) parseImage(imageMsg *waProto.ImageMessage) (*splitbot.ImageBase64, error) {
 	// Handle nil case
 	if imageMsg == nil {
 		return nil, nil
@@ -102,7 +86,7 @@ func (h *WaHandler) parseImage(imageMsg *waProto.ImageMessage) (*splitbot.ImageB
 }
 
 // handleMessage processes a message and returns the response
-func (h *WaHandler) handleMessage(evt *events.Message) *waProto.Message {
+func (h *Handler) handleMessage(evt *events.Message) *waProto.Message {
 	// Get messageText: check ExtendedTextMessage first, then Conversation
 	var messageText string
 	if extMsg := evt.Message.GetExtendedTextMessage(); extMsg != nil {
@@ -147,7 +131,7 @@ func (h *WaHandler) handleMessage(evt *events.Message) *waProto.Message {
 }
 
 // createTextMessage creates a waProto.Message from text with mention support
-func (h *WaHandler) createTextMessage(text string) *waProto.Message {
+func (h *Handler) createTextMessage(text string) *waProto.Message {
 	// Parse mentions from the text
 	mentionedJIDs := findMentions(text)
 	fmt.Printf("Found mentions: %v\n", mentionedJIDs)
@@ -168,7 +152,7 @@ func (h *WaHandler) createTextMessage(text string) *waProto.Message {
 	}
 }
 
-func (h *WaHandler) shouldProcessMessage(messageText string, imageMsg *waProto.ImageMessage) bool {
+func (h *Handler) shouldProcessMessage(messageText string, imageMsg *waProto.ImageMessage) bool {
 	if h.botName == "" {
 		return true
 	}
@@ -181,7 +165,7 @@ func (h *WaHandler) shouldProcessMessage(messageText string, imageMsg *waProto.I
 }
 
 // SendMessageToGroup sends a message to a WhatsApp group
-func (h *WaHandler) SendMessageToGroup(message string, groupId string) error {
+func (h *Handler) SendMessageToGroup(message string, groupId string) error {
 	// Create JID with groupId as User and "g.us" as Server (WhatsApp group format)
 	jid := types.NewJID(groupId, types.GroupServer)
 
@@ -200,7 +184,7 @@ func (h *WaHandler) SendMessageToGroup(message string, groupId string) error {
 
 // SendMessageToUser sends a message to a WhatsApp user (1:1 chat).
 // userId is either a phone number (digits, no +) or a full JID (e.g. 123@s.whatsapp.net, or ...@lid).
-func (h *WaHandler) SendMessageToUser(message string, userId string) error {
+func (h *Handler) SendMessageToUser(message string, userId string) error {
 	var jid types.JID
 	var err error
 	if strings.Contains(userId, "@") {
@@ -223,7 +207,7 @@ func (h *WaHandler) SendMessageToUser(message string, userId string) error {
 }
 
 // EventHandler handles incoming WhatsApp events
-func (h *WaHandler) EventHandler(rawEvt interface{}) {
+func (h *Handler) EventHandler(rawEvt interface{}) {
 	switch evt := rawEvt.(type) {
 	case *events.Message:
 		// Get messageText: check ExtendedTextMessage first, then Conversation

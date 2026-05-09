@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/signal"
@@ -14,14 +15,17 @@ import (
 )
 
 func main() {
-	cfg := config.MustLoad()
+	config.MustLoad()
 
-	client, handler, err := whatsapp.InitializeWaHandler(cfg.Database.URL, cfg.Bot.Name)
+	handler, err := whatsapp.NewHandler()
 	if err != nil {
 		panic(err)
 	}
+	if err := handler.Connect(context.Background()); err != nil {
+		panic(err)
+	}
 
-	fmt.Printf("Bot name: %s\n", cfg.Bot.Name)
+	fmt.Printf("Bot name: %s\n", config.Get().Bot.Name)
 
 	httpServer := server.NewServer(handler)
 	httpServer.Start()
@@ -32,5 +36,5 @@ func main() {
 	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
 	<-c
 
-	client.Disconnect()
+	handler.Disconnect()
 }

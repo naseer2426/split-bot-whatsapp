@@ -12,13 +12,13 @@ import (
 
 // Server represents the HTTP server
 type Server struct {
-	handler *whatsapp.WaHandler
+	handler *whatsapp.Handler
 	port    string
 	router  *gin.Engine
 }
 
 // NewServer creates a new HTTP server instance
-func NewServer(handler *whatsapp.WaHandler) *Server {
+func NewServer(handler *whatsapp.Handler) *Server {
 	port := config.Get().Server.Port
 
 	router := gin.Default()
