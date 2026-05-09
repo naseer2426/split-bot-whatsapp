@@ -10,13 +10,9 @@ type WhitelistGroupRequest struct {
 	PlatformType string `json:"platform_type"`
 }
 
-// WhitelistGroup whitelists a group via the API
-// It uses the SPLIT_BOT_URL environment variable to determine the API base URL
+// WhitelistGroup whitelists a group via the API.
 func WhitelistGroup(groupID string) error {
-	client, err := getClient()
-	if err != nil {
-		return err
-	}
+	client := getClient()
 
 	req := WhitelistGroupRequest{
 		GroupID:      groupID,

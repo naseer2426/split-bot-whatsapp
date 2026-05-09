@@ -3,26 +3,23 @@ package server
 import (
 	"fmt"
 	"log"
-	"os"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	"github.com/naseer2426/split-bot-whatsapp/internal/config"
 	"github.com/naseer2426/split-bot-whatsapp/internal/whatsapp"
 )
 
 // Server represents the HTTP server
 type Server struct {
-	handler *whatsapp.MsgHandler
+	handler *whatsapp.WaHandler
 	port    string
 	router  *gin.Engine
 }
 
 // NewServer creates a new HTTP server instance
-func NewServer(handler *whatsapp.MsgHandler) *Server {
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8080"
-	}
+func NewServer(handler *whatsapp.WaHandler) *Server {
+	port := config.Get().Server.Port
 
 	router := gin.Default()
 

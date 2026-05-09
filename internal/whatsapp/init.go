@@ -11,33 +11,33 @@ import (
 	waLog "go.mau.fi/whatsmeow/util/log"
 )
 
-// InitializeClient sets up and returns a WhatsApp client and handler
-func InitializeClient(databaseURL string, botName string) (*whatsmeow.Client, *MsgHandler, error) {
+// InitializeWaHandler sets up and returns a WhatsApp client and handler
+func InitializeWaHandler(databaseURL string, botName string) (*whatsmeow.Client, *WaHandler, error) {
 	// Set up logging
 	dbLog := waLog.Stdout("Database", "INFO", true)
 	ctx := context.Background()
-	
+
 	// Initialize the PostgreSQL container for storing session data
 	container, err := sqlstore.New(ctx, "postgres", databaseURL, dbLog)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create SQL store: %w", err)
 	}
-	
+
 	// If you want multiple sessions, use container.NewDevice()
 	deviceStore, err := container.GetFirstDevice(context.Background())
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get device store: %w", err)
 	}
-	
+
 	clientLog := waLog.Stdout("Client", "INFO", true)
 	client := whatsmeow.NewClient(deviceStore, clientLog)
-	
-	// Create handler with client and bot name
-	handler := NewMsgHandler(client, botName)
-	
+
+	// Create waHandler with client and bot name
+	waHandler := NewWaHandler(client, botName)
+
 	// Add event handler for incoming messages
-	client.AddEventHandler(handler.EventHandler)
-	
+	client.AddEventHandler(waHandler.EventHandler)
+
 	// Connect to WhatsApp
 	if client.Store.ID == nil {
 		// No ID stored, new login
@@ -46,7 +46,7 @@ func InitializeClient(databaseURL string, botName string) (*whatsmeow.Client, *M
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to connect: %w", err)
 		}
-		
+
 		// Print QR code for scanning
 		for evt := range qrChan {
 			if evt.Event == "code" {
@@ -70,6 +70,6 @@ func InitializeClient(databaseURL string, botName string) (*whatsmeow.Client, *M
 			return nil, nil, fmt.Errorf("failed to connect: %w", err)
 		}
 	}
-	
-	return client, handler, nil
+
+	return client, waHandler, nil
 }

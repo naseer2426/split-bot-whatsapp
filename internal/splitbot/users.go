@@ -19,13 +19,9 @@ type CreateUserRequest struct {
 	WhatsappLID      *string `json:"whatsapp_lid,omitempty"`
 }
 
-// GetAllUsers retrieves all users from the API
-// It uses the SPLIT_BOT_URL environment variable to determine the API base URL
+// GetAllUsers retrieves all users from the API.
 func GetAllUsers(opts GetAllUsersOptions) ([]User, error) {
-	client, err := getClient()
-	if err != nil {
-		return nil, err
-	}
+	client := getClient()
 
 	// Build query parameters
 	queryParams := make(map[string]string)
@@ -56,13 +52,9 @@ func GetAllUsers(opts GetAllUsersOptions) ([]User, error) {
 	return users, nil
 }
 
-// CreateUser creates a new user via the API
-// It uses the SPLIT_BOT_URL environment variable to determine the API base URL
+// CreateUser creates a new user via the API.
 func CreateUser(req CreateUserRequest) (*User, error) {
-	client, err := getClient()
-	if err != nil {
-		return nil, err
-	}
+	client := getClient()
 
 	var user User
 	resp, err := client.R().
@@ -81,13 +73,9 @@ func CreateUser(req CreateUserRequest) (*User, error) {
 	return &user, nil
 }
 
-// UpdateUser updates an existing user via the API
-// It uses the SPLIT_BOT_URL environment variable to determine the API base URL
+// UpdateUser updates an existing user via the API.
 func UpdateUser(userID int, req CreateUserRequest) (*User, error) {
-	client, err := getClient()
-	if err != nil {
-		return nil, err
-	}
+	client := getClient()
 
 	var user User
 	resp, err := client.R().

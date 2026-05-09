@@ -3,11 +3,11 @@ package server
 import (
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/naseer2426/split-bot-whatsapp/internal/config"
 )
 
 // Grafana webhook payload structures
@@ -44,7 +44,7 @@ func (s *Server) grafanaWebhookHandler(c *gin.Context) {
 		return
 	}
 
-	groupID := os.Getenv("GRAFANA_ALERT_GROUP_ID")
+	groupID := config.Get().Grafana.AlertGroupID
 	if groupID == "" {
 		if groupIDFromLabel, ok := payload.Alerts[0].Labels["group_id"]; ok {
 			groupID = groupIDFromLabel

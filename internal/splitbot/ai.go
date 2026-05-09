@@ -25,14 +25,10 @@ type ProcessMessageResponse struct {
 	Error    *string `json:"error"`
 }
 
-// ProcessMessage processes a message via the API
-// It uses the SPLIT_BOT_URL environment variable to determine the API base URL
+// ProcessMessage processes a message via the API.
 func ProcessMessage(req ProcessMessageRequest) (*ProcessMessageResponse, error) {
 	req.PlatformType = "WHATSAPP"
-	client, err := getClient()
-	if err != nil {
-		return nil, err
-	}
+	client := getClient()
 
 	var response ProcessMessageResponse
 	resp, err := client.R().
