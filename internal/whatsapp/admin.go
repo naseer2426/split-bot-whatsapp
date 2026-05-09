@@ -2,11 +2,10 @@ package whatsapp
 
 import (
 	"context"
-	_ "embed"
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
+	"sort"
 	"strings"
 
 	waProto "go.mau.fi/whatsmeow/proto/waE2E"
@@ -14,56 +13,49 @@ import (
 	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/naseer2426/split-bot-whatsapp/internal/splitbot"
+	"github.com/naseer2426/split-bot-whatsapp/internal/db"
 )
 
 const (
-	WhitelistCommand = "/whitelist"
+	WhitelistGroupCommand = "/whitelist-group"
+	OnboardCommand        = "/onboard"
+	ModeCommand           = "/mode"
+	HelpCommand           = "/help"
 )
 
-//go:embed admin.json
-var adminJSONData []byte
+// AdminCmd runs an admin command; chatID is evt.Info.Chat.String() for the message (where the command was sent).
+type AdminCmd func(chatID string, parts []string) string
+
+var AdminCommands = map[string]AdminCmd{
+	WhitelistGroupCommand: runWhitelistGroupCmd,
+	OnboardCommand:        runOnboardCmd,
+	ModeCommand:           runModeCmd,
+}
+
+func init() {
+	AdminCommands[HelpCommand] = runHelpCmd
+}
+
+const adminJSONPath = "internal/whatsapp/admin.json"
 
 // AdminConfig represents the admin configuration structure
 type AdminConfig struct {
 	Admins []string `json:"admins"`
 }
 
-// LoadAdmins loads admin user IDs from admin.json file
+// LoadAdmins loads admin user IDs from internal/whatsapp/admin.json (relative to the process working directory).
 func LoadAdmins() (map[string]bool, error) {
-	// First try to use embedded data
-	var adminData []byte
-	var err error
-
-	if len(adminJSONData) > 0 {
-		adminData = adminJSONData
-	} else {
-		// Fallback: try to read from file system
-		// Try multiple possible paths
-		possiblePaths := []string{
-			filepath.Join("internal", "whatsapp", "admin.json"),
-			filepath.Join(".", "internal", "whatsapp", "admin.json"),
-			"admin.json",
-		}
-
-		for _, path := range possiblePaths {
-			adminData, err = os.ReadFile(path)
-			if err == nil {
-				break
-			}
-		}
-
-		if err != nil {
-			return nil, fmt.Errorf("failed to read admin.json: %w", err)
-		}
+	adminData, err := os.ReadFile(adminJSONPath)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", adminJSONPath, err)
 	}
 
 	var config AdminConfig
 	if err := json.Unmarshal(adminData, &config); err != nil {
-		return nil, fmt.Errorf("failed to parse admin.json: %w", err)
+		return nil, fmt.Errorf("parse %s: %w", adminJSONPath, err)
 	}
 
-	admins := make(map[string]bool)
+	admins := make(map[string]bool, len(config.Admins))
 	for _, admin := range config.Admins {
 		admins[admin] = true
 	}
@@ -71,27 +63,36 @@ func LoadAdmins() (map[string]bool, error) {
 	return admins, nil
 }
 
-// isAdminMessage checks if a message is from an admin in a private chat
-func (h *Handler) isAdminMessage(evt *events.Message) bool {
-	// Check if message is from a private chat (not a group)
-	// Groups have "g.us" as the server part
-	if evt.Info.Chat.Server == "g.us" {
-		return false
+func parseAdminCmd(text string) (cmd string, parts []string, ok bool) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "", nil, false
 	}
-
-	// Check if the sender is in the admins list
-	senderID := cleanSenderID(evt.Info.Sender.String())
-	return h.admins[senderID]
+	parts = strings.Fields(text)
+	if len(parts) == 0 {
+		return "", nil, false
+	}
+	cmd = strings.ToLower(parts[0])
+	_, ok = AdminCommands[cmd]
+	return cmd, parts, ok
 }
 
-// handleAdminMessage handles admin messages (empty for now)
+// isAdminMessage reports whether the sender is an admin and the trimmed message starts with a known admin command.
+func (h *Handler) isAdminMessage(evt *events.Message) bool {
+	senderID := cleanSenderID(evt.Info.Sender.String())
+	senderIsAdmin := h.admins[senderID]
+	_, _, adminCmd := parseAdminCmd(getMessageText(evt))
+	return senderIsAdmin && adminCmd
+}
+
+// handleAdminMessage handles admin commands (DM or group).
 func (h *Handler) handleAdminMessage(evt *events.Message) {
 	messageText := getMessageText(evt)
-	response := "Unrecognized command"
+	cmd, parts, _ := parseAdminCmd(messageText)
 
-	if strings.Contains(strings.ToLower(messageText), strings.ToLower(WhitelistCommand)) {
-		response = h.whitelistCommand(messageText)
-	}
+	run := AdminCommands[cmd]
+	chatID := evt.Info.Chat.String()
+	response := run(chatID, parts)
 
 	_, err := h.client.SendMessage(context.Background(), evt.Info.Chat, &waProto.Message{
 		ExtendedTextMessage: &waProto.ExtendedTextMessage{
@@ -103,31 +104,68 @@ func (h *Handler) handleAdminMessage(evt *events.Message) {
 	}
 }
 
-func (h *Handler) whitelistCommand(messageText string) string {
-	// Trim whitespace from the message
-	messageText = strings.TrimSpace(messageText)
-	
-	// Split by whitespace
-	parts := strings.Fields(messageText)
-	
-	// Check if we have the correct number of parts
-	if len(parts) < 2 {
-		return "Error: Invalid format. Expected format: /whitelist <group_id>\nExample: /whitelist 120363123456789012@g.us"
+func runHelpCmd(_ string, parts []string) string {
+	if len(parts) != 1 {
+		return "Usage: /help"
 	}
-	
-	// Extract group_id (could be multiple words, but typically it's just one)
-	groupID := parts[1]
-	
-	// Validate group_id is not empty
-	if groupID == "" {
-		return "Error: Group ID cannot be empty. Expected format: /whitelist <group_id>"
+	names := make([]string, 0, len(AdminCommands))
+	for name := range AdminCommands {
+		names = append(names, "- "+name)
 	}
-	
-	// Call the WhitelistGroup API
-	if err := splitbot.WhitelistGroup(groupID); err != nil {
-		return fmt.Sprintf("Error: %s", err.Error())
+	sort.Strings(names)
+	return "Available commands:\n\n" + strings.Join(names, "\n")
+}
+
+func runWhitelistGroupCmd(_ string, parts []string) string {
+	if len(parts) != 3 {
+		return "Error: /whitelist-group expects exactly 2 arguments after the command.\nExample: /whitelist-group 120363123456789012@g.us silent"
 	}
-	
-	// Return success message
-	return fmt.Sprintf("Successfully whitelisted %s", groupID)
+	chatID, mode := parts[1], parts[2]
+	if chatID == "" || mode == "" {
+		return "chatID and mode must be non-empty."
+	}
+
+	if err := db.UpsertWhitelistedChat(db.GetDB(), chatID, mode); err != nil {
+		return fmt.Sprintf("failed to upsert whitelisted chat: %v", err)
+	}
+
+	return fmt.Sprintf("Successfully saved chat %s with mode %s", chatID, mode)
+}
+
+func runOnboardCmd(chatID string, parts []string) string {
+	if len(parts) != 2 {
+		return "Error: /onboard expects exactly one argument (mode).\nExample: /onboard silent"
+	}
+	mode := parts[1]
+	if mode == "" {
+		return "Error: mode must be non-empty."
+	}
+
+	if err := db.UpsertWhitelistedChat(db.GetDB(), chatID, mode); err != nil {
+		return fmt.Sprintf("Error onboarding chat: %v", err)
+	}
+	return fmt.Sprintf("Onboarded this chat (%s) with mode %q.", chatID, mode)
+}
+
+func runModeCmd(chatID string, parts []string) string {
+	if len(parts) != 2 {
+		return "Error: /mode expects exactly one argument.\nExample: /mode silent"
+	}
+	mode := parts[1]
+	if mode == "" {
+		return "Error: mode must be non-empty."
+	}
+
+	ok, err := db.IsChatWhitelisted(db.GetDB(), chatID)
+	if err != nil {
+		return fmt.Sprintf("Error checking chat: %v", err)
+	}
+	if !ok {
+		return fmt.Sprintf("This chat (%s) is not in the database. Ask Naseer to whitelist it before changing mode.", chatID)
+	}
+
+	if err := db.SetChatMode(db.GetDB(), chatID, mode); err != nil {
+		return fmt.Sprintf("Error updating mode: %v", err)
+	}
+	return fmt.Sprintf("Updated this chat to mode %q.", mode)
 }

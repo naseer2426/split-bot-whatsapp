@@ -1,0 +1,1 @@
+ALTER TABLE split_bot_chat_whitelist RENAME TO whatsapp_bot_chat_meta;

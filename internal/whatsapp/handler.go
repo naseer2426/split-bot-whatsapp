@@ -5,12 +5,14 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
+	"gorm.io/gorm"
 
 	"github.com/naseer2426/split-bot-whatsapp/internal/config"
 	"github.com/naseer2426/split-bot-whatsapp/internal/splitbot"
 	waclient "github.com/naseer2426/split-bot-whatsapp/internal/whatsmeow"
 	wa "go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/proto/waE2E"
+	"github.com/naseer2426/split-bot-whatsapp/internal/db"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
@@ -21,6 +23,7 @@ type Handler struct {
 	client  *wa.Client
 	botName string
 	admins  map[string]bool
+	db      *gorm.DB
 }
 
 // NewHandler builds a handler with a WhatsApp client and registers the event handler (call Connect next).
@@ -40,6 +43,7 @@ func NewHandler() (*Handler, error) {
 		client:  client,
 		botName: config.Get().Bot.Name,
 		admins:  admins,
+		db:      db.GetDB(),
 	}
 	h.registerClient()
 	return h, nil
@@ -218,6 +222,25 @@ func (h *Handler) EventHandler(rawEvt interface{}) {
 			return
 		}
 
+		chatID := evt.Info.Chat.String()
+		allowed, err := db.IsChatWhitelisted(h.db, chatID)
+		if err != nil {
+			fmt.Printf("whitelist check failed for %s: %v\n", chatID, err)
+			return
+		}
+		if !allowed {
+			text := fmt.Sprintf("This chat (%s) is not whitelisted in the DB, please ask Naseer to whitelist it", chatID)
+			_, sendErr := h.client.SendMessage(context.Background(), evt.Info.Chat, &waProto.Message{
+				ExtendedTextMessage: &waProto.ExtendedTextMessage{
+					Text: proto.String(text),
+				},
+			})
+			if sendErr != nil {
+				fmt.Printf("Error sending whitelist notice: %v\n", sendErr)
+			}
+			return
+		}
+
 		// Check if message includes bot_name (case-insensitive)
 		// Skip processing if bot_name is empty or message doesn't contain it
 		if !h.shouldProcessMessage(messageText, evt.Message.GetImageMessage()) {
@@ -226,7 +249,7 @@ func (h *Handler) EventHandler(rawEvt interface{}) {
 		}
 
 		// Send "Give me a bit..." message
-		_, err := h.client.SendMessage(context.Background(), evt.Info.Chat, &waProto.Message{
+		_, err = h.client.SendMessage(context.Background(), evt.Info.Chat, &waProto.Message{
 			ExtendedTextMessage: &waProto.ExtendedTextMessage{
 				Text: proto.String("Give me a bit..."),
 			},

@@ -10,12 +10,21 @@ import (
 	_ "github.com/lib/pq"
 
 	"github.com/naseer2426/split-bot-whatsapp/internal/config"
+	"github.com/naseer2426/split-bot-whatsapp/internal/db"
 	"github.com/naseer2426/split-bot-whatsapp/internal/server"
 	"github.com/naseer2426/split-bot-whatsapp/internal/whatsapp"
 )
 
 func main() {
 	config.MustLoad()
+
+	dbConn, err := db.Init(config.Get().Database.URL)
+	if err != nil {
+		panic(err)
+	}
+	if err := db.RunMigrations(dbConn); err != nil {
+		panic(err)
+	}
 
 	handler, err := whatsapp.NewHandler()
 	if err != nil {
