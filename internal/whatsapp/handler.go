@@ -2,29 +2,31 @@ package whatsapp
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"strings"
+
 	"gorm.io/gorm"
 
 	"github.com/naseer2426/split-bot-whatsapp/internal/config"
-	"github.com/naseer2426/split-bot-whatsapp/internal/splitbot"
+	"github.com/naseer2426/split-bot-whatsapp/internal/db"
 	waclient "github.com/naseer2426/split-bot-whatsapp/internal/whatsmeow"
 	wa "go.mau.fi/whatsmeow"
-	waProto "go.mau.fi/whatsmeow/proto/waE2E"
-	"github.com/naseer2426/split-bot-whatsapp/internal/db"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
-	"google.golang.org/protobuf/proto"
 )
 
 // Handler contains the WhatsApp client and bot configuration
 type Handler struct {
-	client  *wa.Client
-	botName string
-	admins  map[string]bool
-	db      *gorm.DB
+	client         *wa.Client
+	botName        string
+	admins         map[string]bool
+	db             *gorm.DB
+	handlersByMode map[string]MsgHandler
 }
+
+// MsgHandler handles an incoming WhatsApp message for one chat meta mode (splitbot, nanobot, etc.).
+// Return empty string to send nothing (silent / filtered / not implemented).
+type MsgHandler func(msg *events.Message) string
 
 // NewHandler builds a handler with a WhatsApp client and registers the event handler (call Connect next).
 func NewHandler() (*Handler, error) {
@@ -45,6 +47,11 @@ func NewHandler() (*Handler, error) {
 		admins:  admins,
 		db:      db.GetDB(),
 	}
+	h.handlersByMode = map[string]MsgHandler{
+		string(db.ChatMetaModeSilent):   h.handleSilentMode,
+		string(db.ChatMetaModeSplitBot): h.handleSplitbotMsg,
+		string(db.ChatMetaModeNanoBot):  h.handleNanobotMode,
+	}
 	h.registerClient()
 	return h, nil
 }
@@ -63,109 +70,40 @@ func (h *Handler) Disconnect() {
 	h.client.Disconnect()
 }
 
-// parseImage downloads and converts an image to base64
-// Returns empty ImageBase64 if imageMsg is nil
-func (h *Handler) parseImage(imageMsg *waProto.ImageMessage) (*splitbot.ImageBase64, error) {
-	// Handle nil case
-	if imageMsg == nil {
-		return nil, nil
-	}
-
-	// Download the image
-	imageBytes, err := h.client.Download(context.Background(), imageMsg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to download image: %w", err)
-	}
-
-	// Convert to base64
-	base64String := base64.StdEncoding.EncodeToString(imageBytes)
-
-	fmt.Printf("Image downloaded and converted to base64 (%d bytes, mimetype: %s)\n",
-		len(imageBytes), imageMsg.GetMimetype())
-
-	return &splitbot.ImageBase64{
-		Data:  base64String,
-		MType: imageMsg.GetMimetype(),
-	}, nil
+func (h *Handler) handleSilentMode(evt *events.Message) string {
+	fmt.Printf("chat %s is in silent mode, skipping...\n", evt.Info.Chat.String())
+	return ""
 }
 
-// handleMessage processes a message and returns the response
-func (h *Handler) handleMessage(evt *events.Message) *waProto.Message {
-	// Get messageText: check ExtendedTextMessage first, then Conversation
-	var messageText string
-	if extMsg := evt.Message.GetExtendedTextMessage(); extMsg != nil {
-		messageText = extMsg.GetText()
-	} else {
-		messageText = evt.Message.GetConversation()
-	}
-
-	fmt.Printf("Received message from %s: %s\n", evt.Info.Sender, messageText)
-
-	// Parse image (handles nil case internally)
-	imageBase64, err := h.parseImage(evt.Message.GetImageMessage())
+// handle loads chat authorization and delegates to the mode handler.
+// Returned text is sent as-is; empty string means do not reply.
+func (h *Handler) handle(evt *events.Message) string {
+	chatID := evt.Info.Chat.String()
+	mode, allowed, err := db.GetChatMeta(h.db, chatID)
 	if err != nil {
-		fmt.Printf("Error parsing image: %v\n", err)
-		return &waProto.Message{
-			ExtendedTextMessage: &waProto.ExtendedTextMessage{
-				Text: proto.String(fmt.Sprintf("Error: %v", err)),
-			},
-		}
+		return fmt.Sprintf("chat meta lookup failed for %s: %v", chatID, err)
+	}
+	if !allowed {
+		return h.handleNotWhitelisted(evt)
 	}
 
-	// Build the request
-	req := splitbot.ProcessMessageRequest{
-		Message:     messageText,
-		GroupID:     evt.Info.Chat.String(),
-		Sender:      cleanSenderID(evt.Info.Sender.String()),
-		ImageBase64: imageBase64,
-		BotName:     h.botName,
+	fn, ok := h.handlersByMode[mode]
+	if !ok {
+		return fmt.Sprintf("unsupported chat mode %q", mode)
 	}
-
-	// Process message with AI
-	response, err := splitbot.ProcessMessage(req)
-
-	var replyText string
-	if err != nil {
-		replyText = fmt.Sprintf("Error: %v", err)
-	} else {
-		replyText = response.Response
-	}
-
-	return h.createTextMessage(replyText)
+	return fn(evt)
 }
 
-// createTextMessage creates a waProto.Message from text with mention support
-func (h *Handler) createTextMessage(text string) *waProto.Message {
-	// Parse mentions from the text
-	mentionedJIDs := findMentions(text)
-	fmt.Printf("Found mentions: %v\n", mentionedJIDs)
-
-	extendedTextMsg := &waProto.ExtendedTextMessage{
-		Text: proto.String(text),
+func (h *Handler) handleNotWhitelisted(evt *events.Message) string {
+	msg := getMessageText(evt)
+	if !h.messageContainsBotName(msg) {
+		fmt.Printf("Message from %s doesn't include bot_name '%s', skipping...\n", evt.Info.Sender, h.botName)
+		return ""
 	}
-
-	// Set ContextInfo with MentionedJID if there are any mentions
-	if len(mentionedJIDs) > 0 {
-		extendedTextMsg.ContextInfo = &waProto.ContextInfo{
-			MentionedJID: mentionedJIDs,
-		}
-	}
-
-	return &waProto.Message{
-		ExtendedTextMessage: extendedTextMsg,
-	}
-}
-
-func (h *Handler) shouldProcessMessage(messageText string, imageMsg *waProto.ImageMessage) bool {
-	if h.botName == "" {
-		return true
-	}
-
-	if imageMsg != nil {
-		return true
-	}
-
-	return strings.Contains(strings.ToLower(messageText), strings.ToLower(h.botName))
+	return fmt.Sprintf(
+		"This chat (%s) is not whitelisted in the DB, please ask Naseer to whitelist it",
+		evt.Info.Chat.String(),
+	)
 }
 
 // SendMessageToGroup sends a message to a WhatsApp group
@@ -174,7 +112,7 @@ func (h *Handler) SendMessageToGroup(message string, groupId string) error {
 	jid := types.NewJID(groupId, types.GroupServer)
 
 	// Create the message with mention support
-	msg := h.createTextMessage(message)
+	msg := composeResponse(message, nil /* replyToMessage */)
 
 	// Send the message
 	_, err := h.client.SendMessage(context.Background(), jid, msg)
@@ -200,7 +138,7 @@ func (h *Handler) SendMessageToUser(message string, userId string) error {
 		jid = types.NewJID(userId, types.DefaultUserServer)
 	}
 
-	msg := h.createTextMessage(message)
+	msg := composeResponse(message, nil /* replyToMessage */)
 	_, err = h.client.SendMessage(context.Background(), jid, msg)
 	if err != nil {
 		return fmt.Errorf("failed to send message to user %s: %w", userId, err)
@@ -214,62 +152,30 @@ func (h *Handler) SendMessageToUser(message string, userId string) error {
 func (h *Handler) EventHandler(rawEvt interface{}) {
 	switch evt := rawEvt.(type) {
 	case *events.Message:
-		// Get messageText: check ExtendedTextMessage first, then Conversation
-		messageText := getMessageText(evt)
 
 		if h.isAdminMessage(evt) {
 			h.handleAdminMessage(evt)
 			return
 		}
 
-		chatID := evt.Info.Chat.String()
-		allowed, err := db.IsChatWhitelisted(h.db, chatID)
-		if err != nil {
-			fmt.Printf("whitelist check failed for %s: %v\n", chatID, err)
-			return
+		replyTo := &replyToMessage{
+			stanzaID:     evt.Info.ID,
+			quotedSender: evt.Info.Sender,
+			chat:         evt.Info.Chat,
 		}
-		if !allowed {
-			text := fmt.Sprintf("This chat (%s) is not whitelisted in the DB, please ask Naseer to whitelist it", chatID)
-			_, sendErr := h.client.SendMessage(context.Background(), evt.Info.Chat, &waProto.Message{
-				ExtendedTextMessage: &waProto.ExtendedTextMessage{
-					Text: proto.String(text),
-				},
-			})
-			if sendErr != nil {
-				fmt.Printf("Error sending whitelist notice: %v\n", sendErr)
-			}
+
+		text := h.handle(evt)
+		if text == "" {
 			return
 		}
 
-		// Check if message includes bot_name (case-insensitive)
-		// Skip processing if bot_name is empty or message doesn't contain it
-		if !h.shouldProcessMessage(messageText, evt.Message.GetImageMessage()) {
-			fmt.Printf("Message from %s doesn't include bot_name '%s', skipping...\n", evt.Info.Sender, h.botName)
-			return
-		}
-
-		// Send "Give me a bit..." message
-		_, err = h.client.SendMessage(context.Background(), evt.Info.Chat, &waProto.Message{
-			ExtendedTextMessage: &waProto.ExtendedTextMessage{
-				Text: proto.String("Give me a bit..."),
-			},
-		})
-		if err != nil {
-			fmt.Printf("Error sending message: %v\n", err)
-		}
-
-		// Process the message
-		replyMessage := h.handleMessage(evt)
-
-		// Send the response
-		_, err = h.client.SendMessage(
+		_, sendErr := h.client.SendMessage(
 			context.Background(),
 			evt.Info.Chat,
-			replyMessage,
+			composeResponse(text, replyTo),
 		)
-
-		if err != nil {
-			fmt.Printf("Error sending message: %v\n", err)
+		if sendErr != nil {
+			fmt.Printf("Error sending message: %v\n", sendErr)
 		} else {
 			fmt.Printf("Sent response to %s\n", evt.Info.Chat)
 		}

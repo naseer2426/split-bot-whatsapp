@@ -1,17 +1,56 @@
 package whatsapp
 
 import (
+	"context"
+	"fmt"
 	"regexp"
 	"strings"
 
+	waProto "go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
+	"google.golang.org/protobuf/proto"
 )
+
+// replyToMessage carries metadata for threading an outbound message as a reply.
+type replyToMessage struct {
+	stanzaID     types.MessageID
+	quotedSender types.JID
+	chat         types.JID
+}
 
 func getMessageText(evt *events.Message) string {
 	if extMsg := evt.Message.GetExtendedTextMessage(); extMsg != nil {
 		return extMsg.GetText()
 	}
 	return evt.Message.GetConversation()
+}
+
+// typing shows the "typing..." indicator in chat (text composition).
+func (h *Handler) typing(ctx context.Context, chat types.JID) error {
+	return h.client.SendChatPresence(ctx, chat, types.ChatPresenceComposing, types.ChatPresenceMediaText)
+}
+
+// stopTyping clears the typing indicator in chat.
+func (h *Handler) stopTyping(ctx context.Context, chat types.JID) error {
+	return h.client.SendChatPresence(ctx, chat, types.ChatPresencePaused, types.ChatPresenceMediaText)
+}
+
+// sendProcessing starts typing, and returns a function that stops typing
+// and logs errors. Use as: cleanup := h.sendProcessing(ctx, evt); defer cleanup().
+func (h *Handler) sendProcessing(ctx context.Context, evt *events.Message) func() {
+	if err := h.typing(ctx, evt.Info.Chat); err != nil {
+		fmt.Printf("Error sending typing indicator: %v\n", err)
+	}
+	return func() {
+		if err := h.stopTyping(ctx, evt.Info.Chat); err != nil {
+			fmt.Printf("Error stopping typing indicator: %v\n", err)
+		}
+	}
+}
+
+func (h *Handler) messageContainsBotName(message string) bool {
+	return strings.Contains(strings.ToLower(message), strings.ToLower(h.botName))
 }
 
 // cleanSenderID removes @lid suffix or any suffix after : (including the :)
@@ -50,4 +89,56 @@ func findMentions(responseText string) []string {
 	}
 
 	return mentionedJIDs
+}
+
+func applyReplyContextFields(ctxInfo *waProto.ContextInfo, stanzaID types.MessageID, quotedSender, chat types.JID) {
+	if stanzaID == "" {
+		return
+	}
+	ctxInfo.StanzaID = proto.String(string(stanzaID))
+	ctxInfo.RemoteJID = proto.String(chat.String())
+	if chat.Server == types.GroupServer && !quotedSender.IsEmpty() {
+		ctxInfo.Participant = proto.String(quotedSender.ToNonAD().String())
+	}
+}
+
+func applyMentionContextFields(ctxInfo *waProto.ContextInfo, mentionedJIDs []string) {
+	if len(mentionedJIDs) == 0 {
+		return
+	}
+	ctxInfo.MentionedJID = mentionedJIDs
+}
+
+// createContextInfo builds ContextInfo from reply text (including parsed mentions) and optional thread reply metadata.
+// Returns nil when there is no stanza reply and no mentions.
+func createContextInfo(reply string, stanzaID types.MessageID, quotedSender, chat types.JID) *waProto.ContextInfo {
+	mentionedJIDs := findMentions(reply)
+	fmt.Printf("Found mentions: %v\n", mentionedJIDs)
+
+	if stanzaID == "" && len(mentionedJIDs) == 0 {
+		return nil
+	}
+	ctxInfo := &waProto.ContextInfo{}
+	applyReplyContextFields(ctxInfo, stanzaID, quotedSender, chat)
+	applyMentionContextFields(ctxInfo, mentionedJIDs)
+	return ctxInfo
+}
+
+// composeResponse builds a text message with optional reply threading (replyTo) and mention support.
+// replyTo must be nil when not replying to any message.
+func composeResponse(text string, replyTo *replyToMessage) *waProto.Message {
+	var stanzaID types.MessageID
+	var quotedSender, chat types.JID
+	if replyTo != nil {
+		stanzaID = replyTo.stanzaID
+		quotedSender = replyTo.quotedSender
+		chat = replyTo.chat
+	}
+
+	return &waProto.Message{
+		ExtendedTextMessage: &waProto.ExtendedTextMessage{
+			Text:        proto.String(text),
+			ContextInfo: createContextInfo(text, stanzaID, quotedSender, chat),
+		},
+	}
 }

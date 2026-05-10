@@ -20,6 +20,7 @@ const (
 	WhitelistGroupCommand = "/whitelist-group"
 	OnboardCommand        = "/onboard"
 	ModeCommand           = "/mode"
+	ChatMetaCommand       = "/chat-meta"
 	HelpCommand           = "/help"
 )
 
@@ -30,6 +31,7 @@ var AdminCommands = map[string]AdminCmd{
 	WhitelistGroupCommand: runWhitelistGroupCmd,
 	OnboardCommand:        runOnboardCmd,
 	ModeCommand:           runModeCmd,
+	ChatMetaCommand:       runChatMetaCmd,
 }
 
 func init() {
@@ -87,6 +89,10 @@ func (h *Handler) isAdminMessage(evt *events.Message) bool {
 
 // handleAdminMessage handles admin commands (DM or group).
 func (h *Handler) handleAdminMessage(evt *events.Message) {
+
+	cleanup := h.sendProcessing(context.Background(), evt)
+	defer cleanup()
+
 	messageText := getMessageText(evt)
 	cmd, parts, _ := parseAdminCmd(messageText)
 
@@ -156,11 +162,11 @@ func runModeCmd(chatID string, parts []string) string {
 		return "Error: mode must be non-empty."
 	}
 
-	ok, err := db.IsChatWhitelisted(db.GetDB(), chatID)
+	_, whitelisted, err := db.GetChatMeta(db.GetDB(), chatID)
 	if err != nil {
 		return fmt.Sprintf("Error checking chat: %v", err)
 	}
-	if !ok {
+	if !whitelisted {
 		return fmt.Sprintf("This chat (%s) is not in the database. Ask Naseer to whitelist it before changing mode.", chatID)
 	}
 
@@ -168,4 +174,22 @@ func runModeCmd(chatID string, parts []string) string {
 		return fmt.Sprintf("Error updating mode: %v", err)
 	}
 	return fmt.Sprintf("Updated this chat to mode %q.", mode)
+}
+
+func runChatMetaCmd(chatID string, parts []string) string {
+	if len(parts) != 1 {
+		return "Usage: /chat-meta"
+	}
+	row, whitelisted, err := db.GetWhatsappBotChatMeta(db.GetDB(), chatID)
+	if err != nil {
+		return fmt.Sprintf("Error loading chat meta: %v", err)
+	}
+	if !whitelisted {
+		return fmt.Sprintf("chat (%s) not whitelisted yet", chatID)
+	}
+	out, err := json.MarshalIndent(row, "", "  ")
+	if err != nil {
+		return fmt.Sprintf("Error encoding chat meta: %v", err)
+	}
+	return string(out)
 }
