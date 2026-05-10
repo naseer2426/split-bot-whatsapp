@@ -2,75 +2,84 @@ package whatsapp
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
+	"strconv"
 	"strings"
 
-	wa "go.mau.fi/whatsmeow"
-	waProto "go.mau.fi/whatsmeow/proto/waE2E"
+	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
 )
 
 const playgroundPollTrigger = "poll"
 
-// playgroundPollOptions must stay in sync with the poll built when playgroundPollTrigger is sent.
-var playgroundPollOptions = []string{"A", "B", "C", "D", "E"}
-
-// playgroundPollHashHex maps SHA-256(option UTF-8) hex → option label (WhatsApp poll vote encoding).
-var playgroundPollHashHex map[string]string
-
-func init() {
-	hashes := wa.HashPollOptions(playgroundPollOptions)
-	playgroundPollHashHex = make(map[string]string, len(hashes))
-	for i, sum := range hashes {
-		playgroundPollHashHex[hex.EncodeToString(sum)] = playgroundPollOptions[i]
+func playgroundPollOptions20() []string {
+	opts := make([]string, 20)
+	for i := range opts {
+		opts[i] = strconv.Itoa(i + 1)
 	}
-}
-
-func formatPlaygroundPollVote(sender string, vote *waProto.PollVoteMessage) string {
-	if vote == nil {
-		return ""
-	}
-	opts := vote.GetSelectedOptions()
-	if len(opts) == 0 {
-		return ""
-	}
-	labels := make([]string, 0, len(opts))
-	for _, h := range opts {
-		label, ok := playgroundPollHashHex[hex.EncodeToString(h)]
-		if !ok {
-			label = "?"
-		}
-		labels = append(labels, label)
-	}
-	return fmt.Sprintf("%s voted for option %s", sender, strings.Join(labels, ", "))
+	return opts
 }
 
 func (h *Handler) handlePlaygroundMode(evt *events.Message) string {
+	ctx := context.Background()
+
 	if evt.Message.GetPollUpdateMessage() != nil {
-		vote, err := h.getPollUpdate(context.Background(), evt)
+		vote, err := h.getPollUpdate(ctx, evt)
 		if err != nil {
-			fmt.Printf("playground poll vote: %v\n", err)
+			fmt.Printf("playground poll vote decrypt: %v\n", err)
 			return ""
 		}
 		if vote == nil {
 			return ""
 		}
-		return formatPlaygroundPollVote(cleanSenderID(evt.Info.Sender.String()), vote)
-	}
-
-	text := strings.TrimSpace(getMessageText(evt))
-	if strings.EqualFold(text, playgroundPollTrigger) {
-		poll := h.client.BuildPollCreation(
-			"Playground",
-			playgroundPollOptions,
-			len(playgroundPollOptions),
-		)
-		_, err := h.client.SendMessage(context.Background(), evt.Info.Chat, poll)
+		pu := evt.Message.GetPollUpdateMessage()
+		sender := cleanSenderID(evt.Info.Sender.String())
+		_, err = h.HandlePollVote(ctx, pu.GetPollCreationMessageKey(), vote, sender)
 		if err != nil {
-			return fmt.Sprintf("failed to send poll: %v", err)
+			fmt.Printf("playground HandlePollVote: %v\n", err)
 		}
 		return ""
 	}
+
+	text := strings.TrimSpace(getMessageText(evt))
+	fields := strings.Fields(text)
+
+	if len(fields) >= 2 && strings.EqualFold(fields[0], "status") {
+		id, err := strconv.Atoi(fields[1])
+		if err != nil {
+			return "Usage: status <poll_id>"
+		}
+		rows, err := h.GetPollStatus(ctx, id)
+		if err != nil {
+			return fmt.Sprintf("GetPollStatus: %v", err)
+		}
+		var b strings.Builder
+		fmt.Fprintf(&b, "Poll %d:\n", id)
+		for _, row := range rows {
+			users := "(none)"
+			if len(row.Users) > 0 {
+				users = strings.Join(row.Users, ", ")
+			}
+			fmt.Fprintf(&b, "- %s: %s\n", row.Option, users)
+		}
+		return strings.TrimSpace(b.String())
+	}
+
+	if strings.EqualFold(text, playgroundPollTrigger) {
+		if evt.Info.Chat.Server != types.GroupServer {
+			return "Playground poll: send \"poll\" from a group chat."
+		}
+		opts := playgroundPollOptions20()
+		pollRow, err := h.SendPoll(ctx, "Playground poll", opts, evt.Info.Chat.User)
+		if err != nil {
+			return fmt.Sprintf("SendPoll failed: %v", err)
+		}
+		return fmt.Sprintf(
+			"Poll sent (%d options across split WhatsApp polls). Collective poll id: %d",
+			len(opts),
+			pollRow.ID,
+		)
+	}
+
 	return text
 }
