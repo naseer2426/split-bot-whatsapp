@@ -26,6 +26,18 @@ func getMessageText(evt *events.Message) string {
 	return evt.Message.GetConversation()
 }
 
+// getPollUpdate decrypts PollUpdateMessage payloads. Returns nil when the message is not a poll vote or decryption fails.
+func (h *Handler) getPollUpdate(ctx context.Context, evt *events.Message) (*waProto.PollVoteMessage, error) {
+	if evt.Message.GetPollUpdateMessage() == nil {
+		return nil, nil
+	}
+	vote, err := h.client.DecryptPollVote(ctx, evt)
+	if err != nil {
+		return nil, fmt.Errorf("decrypt poll vote failed: %w", err)
+	}
+	return vote, nil
+}
+
 // typing shows the "typing..." indicator in chat (text composition).
 func (h *Handler) typing(ctx context.Context, chat types.JID) error {
 	return h.client.SendChatPresence(ctx, chat, types.ChatPresenceComposing, types.ChatPresenceMediaText)
@@ -113,7 +125,6 @@ func applyMentionContextFields(ctxInfo *waProto.ContextInfo, mentionedJIDs []str
 // Returns nil when there is no stanza reply and no mentions.
 func createContextInfo(reply string, stanzaID types.MessageID, quotedSender, chat types.JID) *waProto.ContextInfo {
 	mentionedJIDs := findMentions(reply)
-	fmt.Printf("Found mentions: %v\n", mentionedJIDs)
 
 	if stanzaID == "" && len(mentionedJIDs) == 0 {
 		return nil

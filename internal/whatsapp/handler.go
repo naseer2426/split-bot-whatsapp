@@ -48,9 +48,10 @@ func NewHandler() (*Handler, error) {
 		db:      db.GetDB(),
 	}
 	h.handlersByMode = map[string]MsgHandler{
-		string(db.ChatMetaModeSilent):   h.handleSilentMode,
-		string(db.ChatMetaModeSplitBot): h.handleSplitbotMsg,
-		string(db.ChatMetaModeNanoBot):  h.handleNanobotMode,
+		string(db.ChatMetaModeSilent):     h.handleSilentMode,
+		string(db.ChatMetaModeSplitBot):   h.handleSplitbotMsg,
+		string(db.ChatMetaModeNanoBot):    h.handleNanobotMode,
+		string(db.ChatMetaModePlayground): h.handlePlaygroundMode,
 	}
 	h.registerClient()
 	return h, nil
