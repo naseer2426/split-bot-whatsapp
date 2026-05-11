@@ -11,9 +11,9 @@ import (
 
 // pollCreateRequest is the JSON body for POST /poll/create.
 type pollCreateRequest struct {
-	Title    string   `json:"title" binding:"required"`
-	Options  []string `json:"options" binding:"required,min=1"`
-	GroupID  string   `json:"group_id" binding:"required"`
+	Title   string   `json:"title" binding:"required"`
+	Options []string `json:"options" binding:"required,min=1"`
+	GroupID string   `json:"group_id" binding:"required"`
 }
 
 // pollCreateHandler creates a WhatsApp poll in the given group via whatsapp.Handler.SendPoll.
@@ -37,9 +37,8 @@ func (s *Server) pollCreateHandler(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"status":       "success",
-		"poll_id":      pollRow.ID,
-		"message_keys": pollRow.MessageKeys,
+		"status":  "success",
+		"poll_id": pollRow.ID,
 	})
 }
 
