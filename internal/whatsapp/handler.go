@@ -88,6 +88,13 @@ func (h *Handler) handle(evt *events.Message) string {
 		return h.handleNotWhitelisted(evt)
 	}
 
+	if messageType(evt) == MessageTypePollVote {
+		if err := h.HandlePollVote(context.Background(), evt); err != nil {
+			fmt.Printf("HandlePollVote: %v\n", err)
+		}
+		return ""
+	}
+
 	fn, ok := h.handlersByMode[mode]
 	if !ok {
 		return fmt.Sprintf("unsupported chat mode %q", mode)

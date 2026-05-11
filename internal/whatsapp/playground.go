@@ -23,24 +23,6 @@ func playgroundPollOptions20() []string {
 func (h *Handler) handlePlaygroundMode(evt *events.Message) string {
 	ctx := context.Background()
 
-	if evt.Message.GetPollUpdateMessage() != nil {
-		vote, err := h.getPollUpdate(ctx, evt)
-		if err != nil {
-			fmt.Printf("playground poll vote decrypt: %v\n", err)
-			return ""
-		}
-		if vote == nil {
-			return ""
-		}
-		pu := evt.Message.GetPollUpdateMessage()
-		sender := cleanSenderID(evt.Info.Sender.String())
-		_, err = h.HandlePollVote(ctx, pu.GetPollCreationMessageKey(), vote, sender)
-		if err != nil {
-			fmt.Printf("playground HandlePollVote: %v\n", err)
-		}
-		return ""
-	}
-
 	text := strings.TrimSpace(getMessageText(evt))
 	fields := strings.Fields(text)
 

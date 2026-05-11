@@ -19,6 +19,38 @@ type replyToMessage struct {
 	chat         types.JID
 }
 
+// MessageType classifies decoded *events.Message payloads (Protobuf oneof branches on waE2E.Message).
+type MessageType string
+
+const (
+	MessageTypeText     MessageType = "text"
+	MessageTypeImage    MessageType = "image"
+	MessageTypePollVote MessageType = "poll_vote"
+	MessageTypeUnknown  MessageType = "unknown"
+)
+
+// messageType returns a coarse Content type from evt.Message. Unknown includes nil
+// message, unrecognized Protobuf branches (video, sticker, etc.), or empty payloads that do not
+// match image / poll-update / plain text cues.
+func messageType(evt *events.Message) MessageType {
+	if evt == nil || evt.Message == nil {
+		return MessageTypeUnknown
+	}
+	msg := evt.Message
+
+	if msg.GetPollUpdateMessage() != nil {
+		return MessageTypePollVote
+	}
+	if msg.GetImageMessage() != nil {
+		return MessageTypeImage
+	}
+	if strings.TrimSpace(msg.GetConversation()) != "" || msg.GetExtendedTextMessage() != nil {
+		return MessageTypeText
+	}
+
+	return MessageTypeUnknown
+}
+
 func getMessageText(evt *events.Message) string {
 	if extMsg := evt.Message.GetExtendedTextMessage(); extMsg != nil {
 		return extMsg.GetText()

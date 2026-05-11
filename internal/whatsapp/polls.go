@@ -10,9 +10,9 @@ import (
 	"strings"
 
 	"github.com/lib/pq"
-	waCommon "go.mau.fi/whatsmeow/proto/waCommon"
 	waProto "go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
 	"gorm.io/gorm"
 
 	wa "go.mau.fi/whatsmeow"
@@ -24,8 +24,8 @@ const maxPollOptionsPerWA = 12
 
 // OptionSelection is one poll option label with user ids who selected it across all poll shards (from merged votes JSON).
 type OptionSelection struct {
-	Option string
-	Users  []string
+	Option string   `json:"option"`
+	Users  []string `json:"users"`
 }
 
 // SendPoll sends one or more WhatsApp polls (split every maxPollOptionsPerWA options), persists a collective db.Poll
@@ -88,28 +88,69 @@ func (h *Handler) SendPoll(ctx context.Context, title string, options []string, 
 // ErrCollectivePollNotFound means no polls.message_keys contains the poll creation stanza from the vote.
 var ErrCollectivePollNotFound = errors.New("collective poll not found for poll creation message key")
 
-// HandlePollVote finds the collective poll using pollCreationKey (from PollUpdateMessage.pollCreationMessageKey),
-// then upserts votes for userID: it merges into votes JSON, replacing only the array for this poll message stanza id
-// (selected option hashes as hex strings). Other stanza ids are left unchanged.
-func (h *Handler) HandlePollVote(ctx context.Context, pollCreationKey *waCommon.MessageKey, vote *waProto.PollVoteMessage, userID string) (*db.Vote, error) {
+// HandlePollVote handles an incoming PollUpdateMessage: verifies kind, decrypts the vote payload, derives sender and
+// poll creation stanza id, then finds the collective poll and upserts this user's vote slice for that stanza id
+// (hex option hashes); other shards in votes JSON are unchanged.
+func (h *Handler) HandlePollVote(ctx context.Context, evt *events.Message) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if pollCreationKey == nil {
-		return nil, fmt.Errorf("poll creation message key is nil")
+	stanzaID, userID, vote, err := h.parsePollVoteInput(ctx, evt)
+	if err != nil {
+		return err
 	}
-	if vote == nil {
-		return nil, fmt.Errorf("poll vote message is nil")
+	poll, err := h.collectivePollByCreationStanza(ctx, stanzaID)
+	if err == ErrCollectivePollNotFound {
+		// There is a possibility that the poll message was for some other poll in the group, so we just ignore it
+		fmt.Printf("collective poll not found for poll creation message key %s", stanzaID)
+		return nil
 	}
-	stanzaID := pollCreationKey.GetID()
-	if stanzaID == "" {
-		return nil, fmt.Errorf("poll creation message key id is empty")
+	if err != nil {
+		return err
 	}
-	userID = strings.TrimSpace(userID)
-	if userID == "" {
-		return nil, fmt.Errorf("user id is empty")
+	selected := pollVoteSelectedHashesHex(vote)
+	tx := h.db.WithContext(ctx)
+	return upsertPollUserVote(tx, poll.ID, userID, stanzaID, selected)
+}
+
+// parsePollVoteInput validates evt as a poll vote, decrypts payload, and returns creation stanza id, sender id, proto vote.
+func (h *Handler) parsePollVoteInput(ctx context.Context, evt *events.Message) (stanzaID, userID string, vote *waProto.PollVoteMessage, err error) {
+	if evt == nil || evt.Message == nil {
+		return "", "", nil, fmt.Errorf("message event is nil")
+	}
+	if kind := messageType(evt); kind != MessageTypePollVote {
+		return "", "", nil, fmt.Errorf("not a poll vote message (got %q)", kind)
 	}
 
+	vote, err = h.getPollUpdate(ctx, evt)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("decrypt poll vote: %w", err)
+	}
+	if vote == nil {
+		return "", "", nil, fmt.Errorf("poll vote message is nil after decrypt")
+	}
+
+	pu := evt.Message.GetPollUpdateMessage()
+	if pu == nil {
+		return "", "", nil, fmt.Errorf("poll update message missing")
+	}
+	key := pu.GetPollCreationMessageKey()
+	if key == nil {
+		return "", "", nil, fmt.Errorf("poll creation message key is nil")
+	}
+	stanzaID = key.GetID()
+	if stanzaID == "" {
+		return "", "", nil, fmt.Errorf("poll creation message key id is empty")
+	}
+	userID = strings.TrimSpace(cleanSenderID(evt.Info.Sender.String()))
+	if userID == "" {
+		return "", "", nil, fmt.Errorf("user id is empty")
+	}
+	return stanzaID, userID, vote, nil
+}
+
+// collectivePollByCreationStanza loads the db.Poll whose message_keys contain the given WhatsApp poll creation stanza id.
+func (h *Handler) collectivePollByCreationStanza(ctx context.Context, stanzaID string) (*db.Poll, error) {
 	var poll db.Poll
 	err := h.db.WithContext(ctx).
 		Where("message_keys @> ?", pq.Array([]string{stanzaID})).
@@ -120,48 +161,49 @@ func (h *Handler) HandlePollVote(ctx context.Context, pollCreationKey *waCommon.
 	if err != nil {
 		return nil, fmt.Errorf("lookup collective poll: %w", err)
 	}
+	return &poll, nil
+}
 
-	hashHex := pollVoteSelectedHashesHex(vote)
-
+// upsertPollUserVote creates or updates votes for (pollID, userID), setting the slice for stanzaID to selectedHex.
+func upsertPollUserVote(tx *gorm.DB, pollID int, userID, stanzaID string, selectedHex []string) error {
 	var row db.Vote
-	tx := h.db.WithContext(ctx)
-	err = tx.Where("poll_id = ? AND user_id = ?", poll.ID, userID).First(&row).Error
+	err := tx.Where("poll_id = ? AND user_id = ?", pollID, userID).First(&row).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		vm := map[string][]string{
-			stanzaID: append([]string(nil), hashHex...),
+			stanzaID: append([]string(nil), selectedHex...),
 		}
 		raw, mErr := json.Marshal(vm)
 		if mErr != nil {
-			return nil, fmt.Errorf("marshal votes: %w", mErr)
+			return fmt.Errorf("marshal votes: %w", mErr)
 		}
 		row = db.Vote{
-			PollID: poll.ID,
+			PollID: pollID,
 			UserID: userID,
 			Votes:  raw,
 		}
 		if err := tx.Create(&row).Error; err != nil {
-			return nil, fmt.Errorf("create vote: %w", err)
+			return fmt.Errorf("create vote: %w", err)
 		}
-		return &row, nil
+		return nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("load vote: %w", err)
+		return fmt.Errorf("load vote: %w", err)
 	}
 
 	vm, err := decodeVotesByMessageKey(row.Votes)
 	if err != nil {
-		return nil, err
+		return err
 	}
-	vm[stanzaID] = append([]string(nil), hashHex...)
+	vm[stanzaID] = append([]string(nil), selectedHex...)
 	raw, err := json.Marshal(vm)
 	if err != nil {
-		return nil, fmt.Errorf("marshal votes: %w", err)
+		return fmt.Errorf("marshal votes: %w", err)
 	}
 	row.Votes = raw
 	if err := tx.Save(&row).Error; err != nil {
-		return nil, fmt.Errorf("update vote: %w", err)
+		return fmt.Errorf("update vote: %w", err)
 	}
-	return &row, nil
+	return nil
 }
 
 // GetPollStatus loads votes for the collective poll id and groups voters by option label (from options_meta).

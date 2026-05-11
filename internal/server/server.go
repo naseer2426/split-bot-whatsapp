@@ -55,4 +55,6 @@ func (s *Server) setupRoutes() {
 	s.router.POST("/send_message_to_group", s.sendMessageToGroupHandler)
 	s.router.POST("/send_message_to_user", s.sendMessageToUserHandler)
 	s.router.POST("/grafana_webhook", s.grafanaWebhookHandler)
+	s.router.POST("/poll/create", s.pollCreateHandler)
+	s.router.GET("/poll/status", s.pollStatusHandler)
 }
