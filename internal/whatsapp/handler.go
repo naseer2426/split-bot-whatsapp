@@ -156,6 +156,24 @@ func (h *Handler) SendMessageToUser(message string, userId string) error {
 	return nil
 }
 
+// SendMessageToChat sends a plain text message to any WhatsApp chat identified by a full JID string.
+// chatId must parse with types.ParseJID (e.g. Phone@s.whatsapp.net, ...@g.us for groups).
+func (h *Handler) SendMessageToChat(message string, chatId string) error {
+	jid, err := types.ParseJID(chatId)
+	if err != nil {
+		return fmt.Errorf("invalid chat JID %q: %w", chatId, err)
+	}
+
+	msg := composeResponse(message, nil /* replyToMessage */)
+	_, err = h.client.SendMessage(context.Background(), jid, msg)
+	if err != nil {
+		return fmt.Errorf("failed to send message to chat %s: %w", chatId, err)
+	}
+
+	fmt.Printf("Sent message to chat %s\n", chatId)
+	return nil
+}
+
 // EventHandler handles incoming WhatsApp events
 func (h *Handler) EventHandler(rawEvt interface{}) {
 	switch evt := rawEvt.(type) {
