@@ -20,6 +20,11 @@ func (h *Handler) handleNanobotMode(evt *events.Message) string {
 		return ""
 	}
 
+	messageText = h.nanobotMessageText(messageText)
+	if messageText == "" {
+		return ""
+	}
+
 	// we don't send the stopTyping message here because the client will handle it when nanobot replies asynchronously
 	_ = h.sendProcessing(context.Background(), evt)
 
@@ -42,4 +47,12 @@ func (h *Handler) shouldProcessNanobotMsg(evt *events.Message, messageText strin
 		return true
 	}
 	return h.messageContainsBotName(messageText)
+}
+
+// nanobotMessageText returns the text to forward to nanobot, stripping @botName only for slash commands.
+func (h *Handler) nanobotMessageText(message string) string {
+	if !h.isBotNameSlashCommandMessage(message) {
+		return message
+	}
+	return h.messageWithoutBotNameMention(message)
 }

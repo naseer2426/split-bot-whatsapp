@@ -97,6 +97,28 @@ func (h *Handler) messageContainsBotName(message string) bool {
 	return strings.Contains(strings.ToLower(message), strings.ToLower(h.botName))
 }
 
+// isBotNameSlashCommandMessage reports whether message starts with @botName /command
+// where command is non-empty alphanumeric (including hyphens).
+func (h *Handler) isBotNameSlashCommandMessage(message string) bool {
+	if h.botName == "" {
+		return false
+	}
+
+	pattern := regexp.MustCompile(`(?i)^@` + regexp.QuoteMeta(h.botName) + `\s+/[a-zA-Z0-9-]+`)
+	return pattern.MatchString(strings.TrimSpace(message))
+}
+
+// messageWithoutBotNameMention removes @botName mentions (case-insensitive) and trims whitespace.
+func (h *Handler) messageWithoutBotNameMention(message string) string {
+	if h.botName == "" {
+		return strings.TrimSpace(message)
+	}
+
+	pattern := regexp.MustCompile(`(?i)@` + regexp.QuoteMeta(h.botName))
+	cleaned := pattern.ReplaceAllString(message, "")
+	return strings.Join(strings.Fields(cleaned), " ")
+}
+
 // cleanSenderID removes @lid suffix or any suffix after : (including the :)
 func cleanSenderID(sender string) string {
 	// Remove anything after and including ":"
