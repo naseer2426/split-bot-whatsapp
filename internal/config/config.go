@@ -28,6 +28,10 @@ type SplitBotConfig struct {
 	URL string `validate:"required,url"`
 }
 
+type NanobotConfig struct {
+	URL string `validate:"required,url"`
+}
+
 // GrafanaConfig holds optional Grafana webhook defaults.
 type GrafanaConfig struct {
 	AlertGroupID string
@@ -39,6 +43,7 @@ type Config struct {
 	Database DatabaseConfig `validate:"required"`
 	Bot      BotConfig      `validate:"required"`
 	SplitBot SplitBotConfig `validate:"required"`
+	Nanobot  NanobotConfig  `validate:"required"`
 	Grafana  GrafanaConfig
 }
 
@@ -60,6 +65,9 @@ func fromEnv() *Config {
 		},
 		SplitBot: SplitBotConfig{
 			URL: strings.TrimSpace(os.Getenv("SPLIT_BOT_URL")),
+		},
+		Nanobot: NanobotConfig{
+			URL: strings.TrimSpace(os.Getenv("NANOBOT_URL")),
 		},
 		Grafana: GrafanaConfig{
 			AlertGroupID: strings.TrimSpace(os.Getenv("GRAFANA_ALERT_GROUP_ID")),
