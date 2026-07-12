@@ -12,6 +12,7 @@ const (
 	ChatMetaModeSilent     ChatMetaMode = "silent"
 	ChatMetaModeSplitBot   ChatMetaMode = "splitbot"
 	ChatMetaModeNanoBot    ChatMetaMode = "nanobot"
+	ChatMetaModeHermes     ChatMetaMode = "hermes"
 	ChatMetaModePlayground ChatMetaMode = "playground"
 )
 
@@ -21,9 +22,9 @@ var ErrInvalidChatMetaMode = errors.New("invalid chat meta mode")
 // ValidateChatMetaMode returns nil if mode is a known ChatMetaMode*.
 func ValidateChatMetaMode(mode string) error {
 	switch ChatMetaMode(mode) {
-	case ChatMetaModeSilent, ChatMetaModeSplitBot, ChatMetaModeNanoBot, ChatMetaModePlayground:
+	case ChatMetaModeSilent, ChatMetaModeSplitBot, ChatMetaModeNanoBot, ChatMetaModeHermes, ChatMetaModePlayground:
 		return nil
 	default:
-		return fmt.Errorf("%w: %q (valid: silent, splitbot, nanobot, playground)", ErrInvalidChatMetaMode, mode)
+		return fmt.Errorf("%w: %q (valid: silent, splitbot, nanobot, hermes, playground)", ErrInvalidChatMetaMode, mode)
 	}
 }

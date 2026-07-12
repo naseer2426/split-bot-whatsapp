@@ -32,6 +32,11 @@ type NanobotConfig struct {
 	URL string `validate:"required,url"`
 }
 
+type HermesConfig struct {
+	URL    string `validate:"required,url"` // HERMES_URL e.g. http://hermes:8765
+	APIKey string // HERMES_API_KEY optional shared secret
+}
+
 // GrafanaConfig holds optional Grafana webhook defaults.
 type GrafanaConfig struct {
 	AlertGroupID string
@@ -44,6 +49,7 @@ type Config struct {
 	Bot      BotConfig      `validate:"required"`
 	SplitBot SplitBotConfig `validate:"required"`
 	Nanobot  NanobotConfig  `validate:"required"`
+	Hermes   HermesConfig   `validate:"required"`
 	Grafana  GrafanaConfig
 }
 
@@ -68,6 +74,10 @@ func fromEnv() *Config {
 		},
 		Nanobot: NanobotConfig{
 			URL: strings.TrimSpace(os.Getenv("NANOBOT_URL")),
+		},
+		Hermes: HermesConfig{
+			URL:    strings.TrimSpace(os.Getenv("HERMES_URL")),
+			APIKey: strings.TrimSpace(os.Getenv("HERMES_API_KEY")),
 		},
 		Grafana: GrafanaConfig{
 			AlertGroupID: strings.TrimSpace(os.Getenv("GRAFANA_ALERT_GROUP_ID")),

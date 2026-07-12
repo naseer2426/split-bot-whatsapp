@@ -51,6 +51,7 @@ func NewHandler() (*Handler, error) {
 		string(db.ChatMetaModeSilent):     h.handleSilentMode,
 		string(db.ChatMetaModeSplitBot):   h.handleSplitbotMsg,
 		string(db.ChatMetaModeNanoBot):    h.handleNanobotMode,
+		string(db.ChatMetaModeHermes):     h.handleHermesMode,
 		string(db.ChatMetaModePlayground): h.handlePlaygroundMode,
 	}
 	h.registerClient()
