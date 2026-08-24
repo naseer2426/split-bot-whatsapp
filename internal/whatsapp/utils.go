@@ -2,10 +2,13 @@ package whatsapp
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"regexp"
 	"strings"
 
+	"github.com/naseer2426/split-bot-whatsapp/internal/splitbot"
+	"go.mau.fi/whatsmeow"
 	waProto "go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
 	"go.mau.fi/whatsmeow/types/events"
@@ -56,6 +59,50 @@ func getMessageText(evt *events.Message) string {
 		return extMsg.GetText()
 	}
 	return evt.Message.GetConversation()
+}
+
+// downloadMedia downloads a WhatsApp media payload. Returns nil, nil if msg is
+// nil or the downloaded payload is empty.
+func (h *Handler) downloadMedia(ctx context.Context, msg whatsmeow.DownloadableMessage) ([]byte, error) {
+	if msg == nil {
+		return nil, nil
+	}
+
+	data, err := h.client.Download(ctx, msg)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) == 0 {
+		return nil, nil
+	}
+	if len(data) > maxMediaBytes {
+		return nil, fmt.Errorf("media exceeds max size of %d bytes", maxMediaBytes)
+	}
+	return data, nil
+}
+
+// parseImage downloads an image and converts it to base64.
+// Returns nil, nil if imageMsg is nil or the payload is empty.
+func (h *Handler) parseImage(imageMsg *waProto.ImageMessage) (*splitbot.ImageBase64, error) {
+	if imageMsg == nil {
+		return nil, nil
+	}
+
+	data, err := h.downloadMedia(context.Background(), imageMsg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to download image: %w", err)
+	}
+	if len(data) == 0 {
+		return nil, nil
+	}
+
+	fmt.Printf("Image downloaded and converted to base64 (%d bytes, mimetype: %s)\n",
+		len(data), imageMsg.GetMimetype())
+
+	return &splitbot.ImageBase64{
+		Data:  base64.StdEncoding.EncodeToString(data),
+		MType: imageMsg.GetMimetype(),
+	}, nil
 }
 
 // getPollUpdate decrypts PollUpdateMessage payloads. Returns nil when the message is not a poll vote or decryption fails.

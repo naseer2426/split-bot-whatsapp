@@ -2,36 +2,12 @@ package whatsapp
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 
 	"github.com/naseer2426/split-bot-whatsapp/internal/splitbot"
 	waProto "go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types/events"
 )
-
-// parseImage downloads and converts an image to base64.
-// Returns empty ImageBase64 if imageMsg is nil.
-func (h *Handler) parseImage(imageMsg *waProto.ImageMessage) (*splitbot.ImageBase64, error) {
-	if imageMsg == nil {
-		return nil, nil
-	}
-
-	imageBytes, err := h.client.Download(context.Background(), imageMsg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to download image: %w", err)
-	}
-
-	base64String := base64.StdEncoding.EncodeToString(imageBytes)
-
-	fmt.Printf("Image downloaded and converted to base64 (%d bytes, mimetype: %s)\n",
-		len(imageBytes), imageMsg.GetMimetype())
-
-	return &splitbot.ImageBase64{
-		Data:  base64String,
-		MType: imageMsg.GetMimetype(),
-	}, nil
-}
 
 // handleSplitbotMsg runs the splitbot AI path for messages that mention the bot (or carry an image).
 func (h *Handler) handleSplitbotMsg(evt *events.Message) string {

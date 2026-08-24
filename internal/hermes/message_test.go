@@ -47,9 +47,10 @@ func TestSendMessageJSONAndBearer(t *testing.T) {
 		ChatID: "120363@g.us",
 		Text:   "hello",
 		Media: []MediaItem{{
-			Type: "image",
-			Data: "abc123",
-			Mime: "image/jpeg",
+			Type:     "document",
+			Data:     "abc123",
+			Mime:     "application/pdf",
+			Filename: "report.pdf",
 		}},
 		MessageID: "msgid",
 		IsMention: true,
@@ -64,8 +65,11 @@ func TestSendMessageJSONAndBearer(t *testing.T) {
 	if gotBody.Text != "hello" || gotBody.ChatID != "120363@g.us" {
 		t.Fatalf("unexpected body: %+v", gotBody)
 	}
-	if len(gotBody.Media) != 1 || gotBody.Media[0].Type != "image" || gotBody.Media[0].Data != "abc123" {
+	if len(gotBody.Media) != 1 || gotBody.Media[0].Type != "document" || gotBody.Media[0].Data != "abc123" {
 		t.Fatalf("unexpected media: %+v", gotBody.Media)
+	}
+	if gotBody.Media[0].Mime != "application/pdf" || gotBody.Media[0].Filename != "report.pdf" {
+		t.Fatalf("unexpected document metadata: %+v", gotBody.Media[0])
 	}
 	if !gotBody.IsMention || gotBody.MessageID != "msgid" {
 		t.Fatalf("unexpected mention/id: %+v", gotBody)

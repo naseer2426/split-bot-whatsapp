@@ -9,7 +9,7 @@ WhatsApp ingress (whatsmeow) that routes chats by mode to SplitBot, Nanobot, or 
 | `silent` | Ignore messages |
 | `splitbot` | Sync AI via SplitBot |
 | `nanobot` | Forward to Nanobot `POST /message`; async reply via `/send_message_to_chat` |
-| `hermes` | Forward to Hermes `POST /message` (text + images); async reply via `/send_message_to_chat` / `/send_media_to_chat` |
+| `hermes` | Forward to Hermes `POST /message` (text + images + documents, including captioned files); async reply via `/send_message_to_chat` / `/send_media_to_chat` |
 | `playground` | Local playground handler |
 
 Admin: `/onboard hermes` or `/whitelist-group <jid> hermes`.

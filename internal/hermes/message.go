@@ -5,9 +5,10 @@ import (
 )
 
 type MediaItem struct {
-	Type string `json:"type"`           // "image"
-	Data string `json:"data"`           // base64
-	Mime string `json:"mime,omitempty"`
+	Type     string `json:"type"` // "image" | "document" | "video" | "audio"
+	Data     string `json:"data"` // base64
+	Mime     string `json:"mime,omitempty"`
+	Filename string `json:"filename,omitempty"`
 }
 
 type MessageRequest struct {

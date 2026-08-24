@@ -11,7 +11,7 @@ func getClient() *resty.Client {
 	cfg := config.Get().Hermes
 	client := resty.New().
 		SetBaseURL(cfg.URL).
-		SetTimeout(30 * time.Second).
+		SetTimeout(120 * time.Second).
 		SetDebug(true).
 		SetDebugBodyLimit(10 * 1024)
 
